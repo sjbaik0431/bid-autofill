@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>입찰 정량평가 자동입력 시스템</title>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cfb@1.2.2/dist/cfb.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
@@ -100,7 +102,7 @@
 <div class="header">
   <div>
     <h1>입찰 정량평가 자동입력 시스템</h1>
-    <div class="company"><strong id="headerCompany">(주)스페이스락</strong> | 정량평가 양식 자동화 대시보드</div>
+    <div class="company"><strong id="headerCompany"></strong> <span id="headerSep" style="display:none">|</span> 정량평가 양식 자동화 대시보드</div>
   </div>
   <div style="font-size:12px;color:#64748b;">v4.0 Live</div>
 </div>
@@ -193,35 +195,31 @@
   <!-- ═══ 탭2: 회사정보 관리 ═══ -->
   <div id="tab-company" class="tab-content">
     <div class="card">
-      <h2><span class="icon">📤</span>회사정보 입력 방법 안내</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        <!-- 방법 1: 직접 입력 -->
-        <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:12px;padding:20px;">
-          <div style="font-size:15px;font-weight:600;color:#34d399;margin-bottom:10px;">방법 1: 아래에서 직접 입력</div>
-          <div style="font-size:13px;color:#94a3b8;line-height:1.8;">
-            아래 <strong style="color:#c4b5fd;">기본 회사정보</strong> 섹션에서<br>
-            각 항목을 직접 입력하고<br>
-            <strong style="color:#c4b5fd;">💾 회사정보 저장</strong> 버튼을 누르세요.
-          </div>
-          <div style="margin-top:12px;">
-            <button class="btn btn-success btn-sm" onclick="document.getElementById('c_업체명').scrollIntoView({behavior:'smooth',block:'center'});document.getElementById('c_업체명').focus();">
-              ⬇ 아래로 이동해서 입력하기
-            </button>
-          </div>
+      <h2><span class="icon">📤</span>회사정보 HWP 파일에서 자동 추출</h2>
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">기존에 작성된 회사정보 HWP 파일을 업로드하면 자동으로 정보를 추출합니다.</p>
+      <div style="display:flex;gap:12px;align-items:stretch;flex-wrap:wrap;">
+        <div class="upload-zone" id="companyUploadZone" style="flex:1;min-width:250px;margin-bottom:0;">
+          <input type="file" accept=".hwp" onchange="extractHwpCompanyInfo(this)">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text">HWP 파일을 여기에 드래그하거나 클릭</div>
+          <div class="upload-hint">.hwp 파일만 가능</div>
         </div>
-        <!-- 방법 2: HWP 파일 업로드 -->
-        <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:12px;padding:20px;">
-          <div style="font-size:15px;font-weight:600;color:#a78bfa;margin-bottom:10px;">방법 2: HWP 파일에서 자동 추출</div>
-          <div style="font-size:13px;color:#94a3b8;line-height:1.8;">
-            기존 회사정보 HWP 파일을 업로드하면<br>
-            업체명, 대표자, 주소 등을 자동 파싱합니다.
-          </div>
-          <div style="margin-top:12px;padding:10px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.25);border-radius:8px;font-size:12px;color:#fbbf24;line-height:1.6;">
-            ⚠️ HWP 파일 추출은 <strong>로컬 PC</strong>에서만 가능합니다.<br>
-            <code style="background:rgba(0,0,0,.3);padding:2px 6px;border-radius:4px;">python dashboard.py</code> 실행 후<br>
-            <code style="background:rgba(0,0,0,.3);padding:2px 6px;border-radius:4px;">http://localhost:5000</code> 에서 업로드하세요.
-          </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:8px;">
+          <label class="btn btn-primary" style="cursor:pointer;margin:0;">
+            📂 파일 선택하기
+            <input type="file" accept=".hwp" onchange="extractHwpCompanyInfo(this)" style="display:none;">
+          </label>
+          <div style="font-size:11px;color:#64748b;text-align:center;">또는 좌측 영역에<br>드래그 & 드롭</div>
         </div>
+      </div>
+      <div id="companyImportResult" style="display:none;margin-top:16px;">
+        <h3 style="font-size:14px;color:#34d399;margin-bottom:8px;">추출된 회사정보</h3>
+        <div class="parsed-info" id="parsedInfo"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="applyParsedInfo()">📥 이 정보를 회사정보에 반영</button>
+          <button class="btn btn-secondary btn-sm" onclick="togglePreview()">🔍 원문 보기/숨기기</button>
+        </div>
+        <div class="preview-box" id="textPreview" style="display:none;background:rgba(15,23,42,.8);border:1px solid rgba(99,102,241,.15);border-radius:10px;padding:16px;max-height:200px;overflow-y:auto;font-size:12px;line-height:1.6;color:#94a3b8;font-family:Consolas,monospace;white-space:pre-wrap;margin-top:12px;"></div>
       </div>
     </div>
 
@@ -290,12 +288,12 @@ const LS_KEY='bid_autofill_data';
 // 기본 샘플 데이터
 const DEFAULT_DATA = {
   company: {
-    "회사정보":{"업체명":"(주)스페이스락","대표자":"이 영 근","사업자번호":"132-86-19299","주소":"충북 진천군 덕산읍 신척산단1로29","전화번호":"043-231-3700","FAX":"043-231-3800","자본금":"2억 원","전년도매출액":"50억 원","설립일":"2013년"},
-    "인력현황":{"경영지원":[{"성명":"이영근","직위":"대표이사"},{"성명":"장남인","직위":"부장"},{"성명":"웨이","직위":"과장"},{"성명":"김혜령","직위":"주임"},{"성명":"황민호","직위":"주임"},{"성명":"김동식","직위":"사원"}],"시설물설계":[{"성명":"이윤록","직위":"대리","자격증":""},{"성명":"민카잉","직위":"사원","자격증":"건축기능사"},{"성명":"정승기","직위":"사원","자격증":"건축기능사"}]},
-    "면허_허가_등록증":[{"명칭":"건물등 철거업 신고증","등록번호":"충북진천26-다-2","발급기관":"진천군"},{"명칭":"디자인권","등록번호":"제30-0774652호","발급기관":"특허청장"},{"명칭":"상표권","등록번호":"제10-2222321호","발급기관":"특허청장"}],
-    "사업수행실적":[{"용역명":"2022대한민국 도시혁신 산업박람회 행사장 조성용역","발주처":"용인시","계약금액":"559,200천원"},{"용역명":"2023대한민국 도시혁신 산업박람회 행사장 조성용역","발주처":"익산시","계약금액":"109,861천원"},{"용역명":"2025영동세계국악엑스포","발주처":"유레카커뮤니케이션즈","계약금액":"1,049,455천원"}]
+    "회사정보":{"업체명":"","대표자":"","사업자번호":"","주소":"","전화번호":"","FAX":"","자본금":"","전년도매출액":"","설립일":""},
+    "인력현황":{},
+    "면허_허가_등록증":[],
+    "사업수행실적":[]
   },
-  config: {"입찰명":"춘천 2026 세계태권도품새선수권대회 행사운영 대행 용역","발주처":"(재)춘천레저·태권도조직위원회","제출일":"2026년  4월  15일"},
+  config: {"입찰명":"","발주처":"","제출일":""},
   forms: [],
   histories: []
 };
@@ -373,6 +371,7 @@ function loadCompanyUI() {
     const el=document.getElementById('c_'+k);if(el)el.value=info[k]||'';
   });
   document.getElementById('headerCompany').textContent=info['업체명']||'';
+  document.getElementById('headerSep').style.display=info['업체명']?'inline':'none';
   const staff=store.company['인력현황']||{};
   let sh='';
   for(const[d,ms]of Object.entries(staff)){if(Array.isArray(ms))ms.forEach(m=>{sh+=`<div>• <strong>${m['성명']}</strong> (${m['직위']}) - ${d} ${m['자격증']?'/ '+m['자격증']:''}</div>`;});}
@@ -387,6 +386,7 @@ function saveCompany() {
   ['업체명','대표자','사업자번호','주소','전화번호','FAX','설립일','자본금','전년도매출액'].forEach(k=>{info[k]=document.getElementById('c_'+k).value;});
   store.company['회사정보']=info; saveStore(store);
   document.getElementById('headerCompany').textContent=info['업체명'];
+  document.getElementById('headerSep').style.display=info['업체명']?'inline':'none';
   showToast('✅ 회사정보가 저장되었습니다');
 }
 
@@ -464,8 +464,221 @@ function renderHistory() {
   el.innerHTML=store.histories.map(h=>`<div style="padding:8px 0;border-bottom:1px solid rgba(99,102,241,.1);"><strong style="color:#a78bfa">${h.time}</strong> — ${h.bid||'(입찰명 없음)'} — 입력 ${h.count}개 ✅</div>`).join('');
 }
 
+// ── HWP 파일에서 회사정보 추출 (브라우저 내 처리) ──
+let _parsedCompanyData = {};
+let _extractedRawText = '';
+
+async function extractHwpCompanyInfo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.hwp')) {
+    showToast('HWP 파일만 가능합니다', true);
+    input.value = '';
+    return;
+  }
+  showToast('📄 HWP 파일 분석 중...');
+  try {
+    const arrayBuf = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuf);
+
+    // CFB(OLE) 파싱
+    const cfb = CFB.read(data, {type: 'array'});
+    let allText = '';
+
+    // BodyText 스트림 찾기 & 해제
+    const entries = CFB.utils.cfb_dir(cfb);
+    for (const entry of entries) {
+      if (entry && entry.indexOf('BodyText') !== -1) {
+        try {
+          const stream = CFB.find(cfb, entry);
+          if (!stream || !stream.content || stream.content.length === 0) continue;
+          const raw = stream.content;
+          // HWP BodyText는 zlib raw deflate로 압축
+          let decompressed;
+          try {
+            decompressed = pako.inflateRaw(raw);
+          } catch(e1) {
+            try { decompressed = pako.inflate(raw); } catch(e2) {
+              // 압축 안 된 경우 그대로 사용
+              decompressed = raw;
+            }
+          }
+          // UTF-16LE 디코딩
+          const u16arr = new Uint16Array(decompressed.buffer, decompressed.byteOffset, Math.floor(decompressed.byteLength / 2));
+          let text = '';
+          for (let i = 0; i < u16arr.length; i++) {
+            const c = u16arr[i];
+            if (c >= 32 && c < 0xFFFE) {
+              text += String.fromCharCode(c);
+            } else if (c === 13 || c === 10) {
+              text += '\n';
+            }
+          }
+          allText += text + '\n';
+        } catch(streamErr) {
+          console.warn('스트림 처리 실패:', entry, streamErr);
+        }
+      }
+    }
+
+    if (!allText.trim()) {
+      // FileHeader 확인 - 압축 여부 체크
+      let headerEntry = CFB.find(cfb, 'FileHeader');
+      let compressed = true;
+      if (headerEntry && headerEntry.content && headerEntry.content.length >= 40) {
+        const flags = headerEntry.content[36] | (headerEntry.content[37] << 8);
+        compressed = !!(flags & 1);
+      }
+      // 비압축 HWP인 경우 raw 데이터로 시도
+      for (const entry of entries) {
+        if (entry && entry.indexOf('BodyText') !== -1) {
+          try {
+            const stream = CFB.find(cfb, entry);
+            if (!stream || !stream.content) continue;
+            const raw = stream.content;
+            const u16arr = new Uint16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
+            let text = '';
+            for (let i = 0; i < u16arr.length; i++) {
+              const c = u16arr[i];
+              if (c >= 32 && c < 0xFFFE) text += String.fromCharCode(c);
+              else if (c === 13 || c === 10) text += '\n';
+            }
+            allText += text + '\n';
+          } catch(e) {}
+        }
+      }
+    }
+
+    if (!allText.trim()) {
+      showToast('❌ HWP 텍스트를 추출할 수 없습니다. 파일 형식을 확인하세요.', true);
+      input.value = '';
+      return;
+    }
+
+    _extractedRawText = allText;
+    _parsedCompanyData = parseCompanyFromText(allText);
+
+    // 결과 표시
+    const resultDiv = document.getElementById('companyImportResult');
+    const parsedDiv = document.getElementById('parsedInfo');
+    let html = '';
+    const fieldLabels = {
+      '업체명':'업체명','대표자':'대표자','사업자번호':'사업자번호',
+      '주소':'주소','전화번호':'전화번호','FAX':'FAX',
+      '설립일':'설립일','자본금':'자본금','전년도매출액':'전년도매출액'
+    };
+    let foundCount = 0;
+    for (const [key, label] of Object.entries(fieldLabels)) {
+      const val = _parsedCompanyData[key] || '';
+      if (val) foundCount++;
+      html += `<div class="parsed-item"><div class="pk">${label}</div><div class="pv">${val || '(미검출)'}</div></div>`;
+    }
+    parsedDiv.innerHTML = html;
+    resultDiv.style.display = 'block';
+    showToast(`✅ ${file.name}에서 ${foundCount}개 항목 추출 완료`);
+  } catch(err) {
+    console.error('HWP 파싱 오류:', err);
+    showToast('❌ HWP 파싱 오류: ' + err.message, true);
+  }
+  input.value = '';
+}
+
+function parseCompanyFromText(text) {
+  const result = {};
+  // 공백 변형 패턴 처리 (예: "업 체 명", "업  체  명" 등)
+  const patterns = [
+    {key:'업체명', regexes:[/업\s*체\s*명\s*[:：]\s*(.+)/,/회\s*사\s*명\s*[:：]\s*(.+)/,/상\s*호\s*[:：]\s*(.+)/]},
+    {key:'대표자', regexes:[/대\s*표\s*자\s*[:：]\s*(.+)/,/대\s*표\s*이\s*사\s*[:：]\s*(.+)/,/성\s*명\s*[:：]\s*(.+)/]},
+    {key:'사업자번호', regexes:[/사\s*업\s*자\s*등?\s*록?\s*번\s*호\s*[:：]\s*(.+)/,/사\s*업\s*자\s*번\s*호\s*[:：]\s*(.+)/]},
+    {key:'주소', regexes:[/주\s*소\s*[:：]\s*(.+)/,/소\s*재\s*지\s*[:：]\s*(.+)/,/사\s*업\s*장?\s*소?\s*재?\s*지?\s*[:：]\s*(.+)/]},
+    {key:'전화번호', regexes:[/전\s*화\s*번?\s*호?\s*[:：]\s*(.+)/,/TEL\s*[:：]\s*(.+)/i,/T\s*E\s*L\s*[:：]\s*(.+)/]},
+    {key:'FAX', regexes:[/FAX\s*[:：]\s*(.+)/i,/F\s*A\s*X\s*[:：]\s*(.+)/,/팩\s*스\s*[:：]\s*(.+)/]},
+    {key:'설립일', regexes:[/설\s*립\s*일\s*[:：]\s*(.+)/,/설\s*립\s*년\s*도?\s*[:：]\s*(.+)/]},
+    {key:'자본금', regexes:[/자\s*본\s*금\s*[:：]\s*(.+)/,/납\s*입\s*자\s*본\s*금\s*[:：]\s*(.+)/]},
+    {key:'전년도매출액', regexes:[/전\s*년\s*도?\s*매\s*출\s*액?\s*[:：]\s*(.+)/,/매\s*출\s*액\s*[:：]\s*(.+)/,/연\s*간?\s*매\s*출\s*액?\s*[:：]\s*(.+)/]}
+  ];
+
+  const lines = text.split('\n');
+  for (const p of patterns) {
+    for (const regex of p.regexes) {
+      for (const line of lines) {
+        const m = line.match(regex);
+        if (m) {
+          let val = m[1].trim();
+          // 뒤에 오는 잡 제어문자 제거
+          val = val.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+          // 끝에 오는 불필요 문자 제거
+          val = val.replace(/\s{3,}.*$/, '').trim();
+          if (val && val.length > 0 && val.length < 200) {
+            result[p.key] = val;
+            break;
+          }
+        }
+      }
+      if (result[p.key]) break;
+    }
+  }
+  return result;
+}
+
+function applyParsedInfo() {
+  if (!_parsedCompanyData || Object.keys(_parsedCompanyData).length === 0) {
+    showToast('추출된 정보가 없습니다', true);
+    return;
+  }
+  const store = loadStore();
+  const info = store.company['회사정보'] || {};
+  let applied = 0;
+  for (const [key, val] of Object.entries(_parsedCompanyData)) {
+    if (val) {
+      info[key] = val;
+      applied++;
+    }
+  }
+  store.company['회사정보'] = info;
+  saveStore(store);
+  loadCompanyUI();
+  showToast(`✅ ${applied}개 항목이 회사정보에 반영되었습니다`);
+}
+
+function togglePreview() {
+  const el = document.getElementById('textPreview');
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    // 읽기 좋게 정리해서 표시
+    el.textContent = _extractedRawText.replace(/\n{3,}/g, '\n\n').trim().substring(0, 5000);
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// ── 드래그 & 드롭 (회사정보 업로드 영역) ──
+(function() {
+  const zone = document.getElementById('companyUploadZone');
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      const inp = zone.querySelector('input[type="file"]');
+      inp.files = e.dataTransfer.files;
+      extractHwpCompanyInfo(inp);
+    }
+  });
+})();
+
+// ── 헤더 회사명 표시/숨기기 ──
+function updateHeaderCompany() {
+  const store = loadStore();
+  const name = (store.company['회사정보'] || {})['업체명'] || '';
+  document.getElementById('headerCompany').textContent = name;
+  document.getElementById('headerSep').style.display = name ? 'inline' : 'none';
+}
+
 // 초기화
-loadCompanyUI(); loadConfigUI(); renderFormSelect(); renderForms(); renderHistory();
+loadCompanyUI(); loadConfigUI(); renderFormSelect(); renderForms(); renderHistory(); updateHeaderCompany();
 </script>
 </body>
 </html>

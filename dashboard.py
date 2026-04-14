@@ -471,7 +471,7 @@ HTML_PAGE = r'''<!DOCTYPE html>
 <div class="header">
   <div>
     <h1>입찰 정량평가 자동입력 시스템</h1>
-    <div class="company"><strong id="headerCompany">(주)스페이스락</strong> | 정량평가 양식 자동화 대시보드</div>
+    <div class="company"><strong id="headerCompany"></strong> <span id="headerSep" style="display:none">|</span> 정량평가 양식 자동화 대시보드</div>
   </div>
   <div style="font-size:12px;color:#64748b;">v4.0</div>
 </div>
@@ -858,6 +858,7 @@ async function loadData() {
       const el = document.getElementById('c_'+k); if(el) el.value = info[k]||'';
     });
     document.getElementById('headerCompany').textContent = info['업체명']||'';
+    document.getElementById('headerSep').style.display = info['업체명'] ? 'inline' : 'none';
     const staff = data['인력현황']||{};
     let sh = '';
     for (const [d,ms] of Object.entries(staff)) { if(Array.isArray(ms)) ms.forEach(m => { sh += `<div>• <strong>${m['성명']}</strong> (${m['직위']}) - ${d} ${m['자격증']?'/ '+m['자격증']:''}</div>`; }); }
@@ -884,6 +885,7 @@ async function saveCompany() {
   data['회사정보']=info;
   await fetch('/api/company',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   document.getElementById('headerCompany').textContent=info['업체명'];
+  document.getElementById('headerSep').style.display=info['업체명']?'inline':'none';
   showToast('✅ 회사정보가 저장되었습니다');
 }
 
