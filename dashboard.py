@@ -673,7 +673,7 @@ function showToast(msg, isError) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show' + (isError ? ' error' : '');
-  setTimeout(() => t.classList.remove('show'), 2500);
+  setTimeout(() => t.classList.remove('show'), isError ? 5000 : 2500);
 }
 
 // ── 양식 파일 업로드 ──
