@@ -497,17 +497,36 @@ HTML_PAGE = r'''<!DOCTYPE html>
 
     <div class="card">
       <h2><span class="icon">📂</span>양식 파일 선택</h2>
+
+      <!-- 양식 업로드 + 선택 영역 -->
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:stretch;">
+        <div class="upload-zone" id="runFormUploadZone" style="flex:1;min-width:250px;margin-bottom:0;padding:16px;">
+          <input type="file" accept=".hwp" onchange="uploadFormFromRun(this)">
+          <div class="upload-icon" style="font-size:24px;">📤</div>
+          <div class="upload-text" style="font-size:13px;">새 양식 HWP 업로드</div>
+          <div class="upload-hint">클릭 또는 드래그</div>
+        </div>
+        <div style="flex:2;min-width:300px;display:flex;flex-direction:column;gap:10px;">
+          <div class="form-group" style="margin:0;">
+            <label>등록된 양식에서 선택</label>
+            <select id="formSelect" onchange="onFormSelect()">
+              <option value="">-- 양식을 선택하세요 --</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>또는 직접 파일 선택 / 경로 입력</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="formPath" placeholder="예: C:\Users\...\정량적평가-양식.hwp" style="flex:1;">
+              <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0;display:inline-flex;align-items:center;">
+                📂 찾아보기
+                <input type="file" accept=".hwp" onchange="browseFormFile(this)" style="display:none;">
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="form-grid">
-        <div class="form-group full">
-          <label>등록된 양식에서 선택</label>
-          <select id="formSelect" onchange="onFormSelect()">
-            <option value="">-- 양식을 선택하세요 --</option>
-          </select>
-        </div>
-        <div class="form-group full">
-          <label>또는 직접 경로 입력</label>
-          <input type="text" id="formPath" placeholder="예: C:\Users\...\정량적평가-양식.hwp">
-        </div>
         <div class="form-group">
           <label>출력 파일명 (확장자 제외)</label>
           <input type="text" id="outputName" value="정량적평가-자동입력완료">
@@ -550,11 +569,20 @@ HTML_PAGE = r'''<!DOCTYPE html>
     <div class="card">
       <h2><span class="icon">📤</span>회사정보 HWP 파일에서 자동 추출</h2>
       <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">기존에 작성된 회사정보 HWP 파일을 업로드하면 자동으로 정보를 추출합니다.</p>
-      <div class="upload-zone" id="companyUploadZone">
-        <input type="file" accept=".hwp" onchange="uploadCompanyFile(this)">
-        <div class="upload-icon">📄</div>
-        <div class="upload-text">회사정보가 포함된 HWP 파일을 여기에 드래그하거나 클릭하세요</div>
-        <div class="upload-hint">.hwp 파일만 가능 | 최대 50MB</div>
+      <div style="display:flex;gap:12px;align-items:stretch;flex-wrap:wrap;">
+        <div class="upload-zone" id="companyUploadZone" style="flex:1;min-width:250px;margin-bottom:0;">
+          <input type="file" accept=".hwp" onchange="uploadCompanyFile(this)">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text">HWP 파일을 여기에 드래그하거나 클릭</div>
+          <div class="upload-hint">.hwp 파일만 가능 | 최대 50MB</div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:8px;">
+          <label class="btn btn-primary" style="cursor:pointer;margin:0;">
+            📂 파일 선택하기
+            <input type="file" accept=".hwp" onchange="uploadCompanyFile(this)" style="display:none;">
+          </label>
+          <div style="font-size:11px;color:#64748b;text-align:center;">또는 좌측 영역에<br>드래그 & 드롭</div>
+        </div>
       </div>
       <div id="companyImportResult" style="display:none;">
         <h3 style="font-size:14px;color:#34d399;margin-bottom:8px;">✅ 추출된 회사정보</h3>
@@ -661,6 +689,44 @@ async function uploadFormFiles(input) {
   input.value = '';
   loadForms();
   loadFormSelect();
+}
+
+// 자동입력 실행 탭에서 양식 업로드 (업로드 후 바로 선택됨)
+async function uploadFormFromRun(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  showToast('📤 양식 업로드 중...');
+  const res = await fetch('/api/forms/upload', {method:'POST', body:fd});
+  const data = await res.json();
+  input.value = '';
+  if (data.ok) {
+    document.getElementById('formPath').value = data.path;
+    showToast(`✅ "${file.name}" 업로드 및 선택 완료`);
+    loadFormSelect();
+  } else {
+    showToast(`❌ ${data.error}`, true);
+  }
+}
+
+// 파일 찾아보기 (로컬 파일 경로를 직접 입력 대신 선택)
+function browseFormFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  // 업로드하고 경로 설정
+  const fd = new FormData();
+  fd.append('file', file);
+  fetch('/api/forms/upload', {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById('formPath').value = data.path;
+        showToast(`✅ "${file.name}" 불러오기 완료`);
+        loadFormSelect();
+      }
+    });
+  input.value = '';
 }
 
 async function loadForms() {
@@ -868,7 +934,7 @@ const histories=[];
 function addHistory(r){const n=new Date();const t=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')} ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;histories.unshift({time:t,bid:document.getElementById('bidName').value,count:r.ok_count});document.getElementById('historyList').innerHTML=histories.map(h=>`<div style="padding:8px 0;border-bottom:1px solid rgba(99,102,241,.1);"><strong style="color:#a78bfa">${h.time}</strong> — ${h.bid||'(입찰명 없음)'} — 입력 ${h.count}개 ✅</div>`).join('');}
 
 // 드래그앤드롭
-['formUploadZone','companyUploadZone'].forEach(id => {
+['formUploadZone','companyUploadZone','runFormUploadZone'].forEach(id => {
   const z = document.getElementById(id);
   if (!z) return;
   z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('dragover'); });
