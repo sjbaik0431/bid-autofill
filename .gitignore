@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+양식/
+회사정보/
+company_master.json
+autofill_config.json
+*.hwp
+*.pdf
