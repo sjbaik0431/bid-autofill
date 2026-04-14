@@ -16,8 +16,13 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MASTER_DB = os.path.join(SCRIPT_DIR, "company_master.json")
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "autofill_config.json")
+# company_master.json 탐색: 스크립트 디렉토리 → 상위 디렉토리 순
+_master_local = os.path.join(SCRIPT_DIR, "company_master.json")
+_master_parent = os.path.join(os.path.dirname(SCRIPT_DIR), "company_master.json")
+MASTER_DB = _master_local if os.path.exists(_master_local) else (_master_parent if os.path.exists(_master_parent) else _master_local)
+_config_local = os.path.join(SCRIPT_DIR, "autofill_config.json")
+_config_parent = os.path.join(os.path.dirname(SCRIPT_DIR), "autofill_config.json")
+CONFIG_FILE = _config_local if os.path.exists(_config_local) else (_config_parent if os.path.exists(_config_parent) else _config_local)
 FORMS_DIR = os.path.join(SCRIPT_DIR, "양식")       # 양식 파일 저장소
 COMPANY_DIR = os.path.join(SCRIPT_DIR, "회사정보")  # 회사정보 파일 저장소
 
@@ -44,22 +49,32 @@ def extract_hwp_text(hwp_path):
     import olefile, zlib
     text_parts = []
     try:
+        if not os.path.exists(hwp_path):
+            return f"[추출 오류: 파일이 존재하지 않습니다 - {hwp_path}]"
         ole = olefile.OleFileIO(hwp_path)
-        for stream in ole.listdir():
+        streams = ole.listdir()
+        body_streams = ["/".join(s) for s in streams if "/".join(s).startswith("BodyText/")]
+        if not body_streams:
+            ole.close()
+            return "[추출 오류: HWP 파일에 BodyText 스트림이 없습니다. 올바른 HWP 파일인지 확인하세요.]"
+        for stream in streams:
             path = "/".join(stream)
             if path.startswith("BodyText/"):
                 data = ole.openstream(stream).read()
                 try:
                     decompressed = zlib.decompress(data, -15)
                 except:
-                    decompressed = data
+                    try:
+                        decompressed = zlib.decompress(data)
+                    except:
+                        decompressed = data
                 raw = decompressed.decode('utf-16le', errors='ignore')
                 cleaned = ''.join(c for c in raw if c.isprintable() or c in '\n\r\t')
                 cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', cleaned)
                 text_parts.append(cleaned)
         ole.close()
     except Exception as e:
-        return f"[추출 오류: {e}]"
+        return f"[추출 오류: {type(e).__name__} - {e}]"
     return "\n".join(text_parts)
 
 def parse_company_info_from_text(text):
@@ -246,16 +261,28 @@ def import_company():
     f = request.files['file']
     if not f.filename.lower().endswith('.hwp'):
         return jsonify({"error": "HWP 파일만 업로드 가능합니다"}), 400
-    # 저장
-    safe_name = f.filename
-    save_path = os.path.join(COMPANY_DIR, safe_name)
-    f.save(save_path)
+    try:
+        # 한글 파일명 안전 처리
+        safe_name = f.filename.replace('/', '_').replace('\\', '_')
+        os.makedirs(COMPANY_DIR, exist_ok=True)
+        save_path = os.path.join(COMPANY_DIR, safe_name)
+        f.save(save_path)
+    except Exception as e:
+        return jsonify({"error": f"파일 저장 실패: {e}"}), 500
     # 텍스트 추출
+    try:
+        import olefile
+    except ImportError:
+        return jsonify({"error": "olefile 패키지가 설치되지 않았습니다. pip install olefile 실행 후 재시도하세요."}), 500
     text = extract_hwp_text(save_path)
     if text.startswith("[추출 오류"):
         return jsonify({"error": text, "text": ""}), 500
+    if not text.strip():
+        return jsonify({"error": "파일에서 텍스트를 추출할 수 없습니다. HWP 파일이 맞는지 확인하세요."}), 500
     # 파싱
     parsed = parse_company_info_from_text(text)
+    if not parsed:
+        return jsonify({"error": "회사정보 항목을 찾을 수 없습니다. 파일 내용을 확인하세요.", "text_preview": text[:1000]}), 400
     return jsonify({
         "ok": True,
         "parsed": parsed,
@@ -787,24 +814,38 @@ function onFormSelect() {
 async function uploadCompanyFile(input) {
   const file = input.files[0];
   if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.hwp')) {
+    showToast('❌ HWP 파일만 업로드 가능합니다', true);
+    input.value = '';
+    return;
+  }
   const fd = new FormData();
   fd.append('file', file);
   showToast('📄 파일 분석 중...');
-  const res = await fetch('/api/company/import', {method:'POST', body:fd});
-  const data = await res.json();
-  input.value = '';
-  if (data.ok) {
-    parsedData = data.parsed;
-    const el = document.getElementById('parsedInfo');
-    el.innerHTML = Object.entries(data.parsed).map(([k,v]) =>
-      `<div class="parsed-item"><div class="pk">${k}</div><div class="pv">${v}</div></div>`
-    ).join('');
-    document.getElementById('textPreview').textContent = data.text_preview;
-    document.getElementById('companyImportResult').style.display = 'block';
-    showToast(`✅ ${Object.keys(data.parsed).length}개 항목 추출 완료`);
-    loadCompanyFiles();
-  } else {
-    showToast(`❌ ${data.error}`, true);
+  try {
+    const res = await fetch('/api/company/import', {method:'POST', body:fd});
+    const data = await res.json();
+    input.value = '';
+    if (data.ok) {
+      parsedData = data.parsed;
+      const el = document.getElementById('parsedInfo');
+      el.innerHTML = Object.entries(data.parsed).map(([k,v]) =>
+        `<div class="parsed-item"><div class="pk">${k}</div><div class="pv">${v}</div></div>`
+      ).join('');
+      document.getElementById('textPreview').textContent = data.text_preview || '';
+      document.getElementById('companyImportResult').style.display = 'block';
+      showToast(`✅ ${Object.keys(data.parsed).length}개 항목 추출 완료`);
+      loadCompanyFiles();
+    } else {
+      showToast(`❌ ${data.error}`, true);
+      if (data.text_preview) {
+        document.getElementById('textPreview').textContent = data.text_preview;
+        document.getElementById('textPreview').style.display = 'block';
+      }
+    }
+  } catch(e) {
+    showToast('❌ 서버 연결 실패: ' + e.message, true);
+    input.value = '';
   }
 }
 
