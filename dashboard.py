@@ -317,6 +317,24 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
         hwp.Open(output_hwp, "HWP", "forceopen:true")
         if demo_mode: time.sleep(2)
         patterns = build_patterns(info, bid_info, extended)
+
+        # ── 양식 텍스트 스캔으로 동적 패턴 추가 (공백 변형 자동 대응) ──
+        try:
+            from autofill import scan_form_for_patterns
+            form_scan_text = extract_hwp_text(form_path)
+            dynamic_patterns = scan_form_for_patterns(form_scan_text, info, bid_info)
+            # 기존 패턴의 찾기 텍스트와 중복 안 되는 것만 추가
+            existing_finds = set(p[1] for p in patterns)
+            added = 0
+            for dp in dynamic_patterns:
+                if dp[1] not in existing_finds:
+                    patterns.append(dp)
+                    existing_finds.add(dp[1])
+                    added += 1
+            if added > 0:
+                status["log"].append(f"🔍 양식 스캔: 동적 패턴 {added}개 추가 발견")
+        except Exception as e:
+            status["log"].append(f"⚠️ 양식 스캔 실패 (무시): {e}")
         year = str(datetime.now().year)
         제출일 = bid_info.get('제출일', f"{year}년  {datetime.now().month}월  {datetime.now().day}일")
         date_patterns = [

@@ -43,6 +43,84 @@ def replace_all(hwp, find, replace):
     hwp.HParameterSet.HFindReplace.FindType = 0
     return hwp.HAction.Execute("AllReplace", hwp.HParameterSet.HFindReplace.HSet)
 
+def _space_variants(base_chars, colon=True):
+    """
+    한글 라벨의 공백 변형 자동 생성
+    예: "업체명" → ["업체명 :", "업 체 명 :", "업  체  명 :", "업    체    명 :", "업     체    명 :"]
+    """
+    chars = list(base_chars)
+    suffix = " :" if colon else ""
+    variants = set()
+    variants.add(base_chars + suffix)       # 붙여쓰기: "업체명 :"
+    variants.add(base_chars + ":" if colon else base_chars)  # "업체명:"
+    for sp in [1, 2, 3, 4, 5]:
+        spaced = (" " * sp).join(chars)
+        variants.add(spaced + suffix)       # "업 체 명 :", "업  체  명 :" 등
+    # 비대칭 공백 (자주 나오는 패턴)
+    if len(chars) >= 3:
+        variants.add(("    ".join(chars[:2]) + "    " + "    ".join(chars[2:])) + suffix)
+        variants.add(("     ".join(chars[:2]) + "    " + "    ".join(chars[2:])) + suffix)
+    return list(variants)
+
+
+def scan_form_for_patterns(form_text, info, bid_info):
+    """
+    양식 텍스트를 스캔하여 회사정보 필드와 매칭되는 라벨을 자동 발견.
+    공백 패턴에 관계없이, 핵심 한글 키워드로 매칭.
+    """
+    import re
+    extra_patterns = []
+    # 키워드 → (카테고리, 값) 매핑
+    keyword_map = {
+        '업체명': ('업체명', info.get('업체명','')),
+        '회사명': ('업체명', info.get('업체명','')),
+        '상호': ('업체명', info.get('업체명','')),
+        '법인명': ('업체명', info.get('업체명','')),
+        '대표자': ('대표자', info.get('대표자','')),
+        '대표이사': ('대표자', info.get('대표자','')),
+        '담당자': ('대표자', info.get('대표자','')),
+        '주소': ('주소', info.get('주소','')),
+        '소재지': ('주소', info.get('주소','')),
+        '주사무소': ('주소', info.get('주소','')),
+        '사업자': ('사업자번호', info.get('사업자번호','')),
+        '등록번호': ('사업자번호', info.get('사업자번호','')),
+        '전화': ('전화번호', info.get('전화번호','')),
+        '연락처': ('전화번호', info.get('전화번호','')),
+        '문의처': ('전화번호', info.get('전화번호','')),
+        '설립일': ('설립일', info.get('설립일','')),
+        '자본금': ('자본금', info.get('자본금','')),
+        '매출액': ('매출액', info.get('전년도매출액','')),
+        '법인등록번호': ('법인등록번호', info.get('법인등록번호','')),
+        '입찰명': ('입찰명', bid_info.get('입찰명','')),
+        '용역명': ('입찰명', bid_info.get('입찰명','')),
+        '사업명': ('입찰명', bid_info.get('입찰명','')),
+        '발주처': ('발주처', bid_info.get('발주처','')),
+        '발주기관': ('발주처', bid_info.get('발주처','')),
+        '기관명': ('발주처', bid_info.get('발주처','')),
+        '소속': ('소속', info.get('업체명','')),
+        '직위': ('직위', '대표이사'),
+        '성명': ('성명', info.get('대표자','')),
+    }
+    # 양식에서 "라벨 :" 패턴 추출 (공백 무관)
+    seen = set()
+    for line in form_text.split('\n'):
+        line = line.strip()
+        # "한글(공백포함) :" 형태
+        m = re.match(r'^([가-힣A-Za-z()（）/·\s]{2,30})\s*[:：]', line)
+        if not m:
+            continue
+        raw_label = m.group(0)  # 콜론 포함
+        # 핵심 키워드 추출 (공백 제거하여 비교)
+        compressed = re.sub(r'\s+', '', m.group(1))
+        for keyword, (cat, val) in keyword_map.items():
+            kw_comp = keyword.replace(' ', '')
+            if kw_comp in compressed and val and raw_label not in seen:
+                extra_patterns.append((f"동적-{cat}", raw_label, f"{raw_label} {val}"))
+                seen.add(raw_label)
+                break
+    return extra_patterns
+
+
 def build_patterns(info, bid_info, extended=None):
     """
     회사정보 + 입찰정보로 찾아바꾸기 패턴 목록 생성
@@ -75,67 +153,74 @@ def build_patterns(info, bid_info, extended=None):
 
     patterns = []
 
-    # ── 업체명 (다양한 띄어쓰기 패턴) ──
-    for label in ["업 체 명 :", "업체명 :", "회사명 :", "업체명:",
-                   "업    체    명 :", "상 호 :", "상호 :", "상호명 :"]:
+    # ═══ 기본 회사정보 (공백 변형 자동 생성) ═══
+
+    # ── 업체명 ──
+    for label in _space_variants("업체명") + _space_variants("회사명") + _space_variants("상호") + ["상호명 :", "상호(법인명칭)"]:
         patterns.append(("업체명", label, f"{label} {업체명}"))
+    # 인라인 업체명 특수 패턴
+    if 업체명:
+        patterns.append(("업체명-인라인", "총괄표(업체명:", f"총괄표(업체명:{업체명})"))
+        patterns.append(("업체명-인라인", "현황(업체명:", f"현황(업체명:{업체명})"))
 
     # ── 대표자 ──
-    for label in ["대 표 자 :", "대표자 :", "대표자:", "성 명 :",
-                   "대 표 이 사 :", "대표이사 :"]:
+    for label in _space_variants("대표자") + _space_variants("대표이사") + ["성 명 :", "성명 :", "담 당 자 :"]:
         patterns.append(("대표자", label, f"{label} {대표자}"))
 
     # ── 주소 ──
-    for label in ["주    소 :", "주  소 :", "주소 :", "주소:",
-                   "소 재 지 :", "소재지 :", "본사주소 :",
-                   "주사무소소재지 :", "주 사 무 소 소 재 지 :",
-                   "회사 :", "회사:"]:
+    for label in _space_variants("주소") + _space_variants("소재지") + [
+        "본사주소 :", "주사무소 소재지 :", "주사무소소재지 :",
+        "주 사 무 소 소 재 지 :", "주 사 무 소  소 재 지 :",
+        "회사 :", "회사:"]:
         patterns.append(("주소", label, f"{label} {주소}"))
 
     # ── 사업자등록번호 ──
-    for label in ["사업자등록번호 :", "사업자등록번호:", "사 업 자 등 록 번 호 :",
-                   "사업자번호 :", "등록번호 :"]:
+    for label in _space_variants("사업자등록번호") + _space_variants("사업자번호") + [
+        "사업자 등록번호 :", "등록번호 :"]:
         patterns.append(("사업자번호", label, f"{label} {사번}"))
 
     # ── 전화번호 ──
-    for label in ["전화번호 :", "전화번호:", "전 화 번 호 :", "T E L :",
-                   "TEL :", "전화 :", "연락처 :", "문의처 :", "담당자연락처 :"]:
+    for label in _space_variants("전화번호") + _space_variants("전화") + [
+        "T E L :", "TEL :", "연락처 :", "문의처 :", "담당자연락처 :"]:
         patterns.append(("전화번호", label, f"{label} {전화}"))
 
     # ── FAX ──
-    for label in ["FAX :", "FAX:", "팩스 :", "팩 스 :", "F A X :"]:
+    for label in ["FAX :", "FAX:", "팩스 :", "팩 스 :", "F A X :", "F.A.X :", "FAX번호 :"]:
         patterns.append(("FAX", label, f"{label} {팩스}"))
 
     # ── 자본금 ──
-    for label in ["자본금 :", "자본금:", "자 본 금 :"]:
+    for label in _space_variants("자본금"):
         patterns.append(("자본금", label, f"{label} {자본금}"))
 
     # ── 매출액 ──
-    for label in ["전년도매출액 :", "매출액 :", "매출액:", "전년도 매출액 :"]:
+    for label in _space_variants("전년도매출액") + _space_variants("매출액") + ["전년도 매출액 :"]:
         patterns.append(("매출액", label, f"{label} {매출액}"))
 
     # ── 설립일 ──
-    for label in ["설립일 :", "설립일:", "설 립 일 :", "설립년도 :"]:
+    for label in _space_variants("설립일") + ["설립년도 :", "설립연월일 :"]:
         patterns.append(("설립일", label, f"{label} {설립일}"))
 
     # ── 소속/직위/성명 (서명란) ──
-    patterns.append(("소속", "소속 :", f"소속 : {업체명}"))
-    patterns.append(("직위", "직위 :", f"직위 : 대표이사"))
-    patterns.append(("성명-서명", "성명 :", f"성명 : {대표자}"))
+    for label in _space_variants("소속"):
+        patterns.append(("소속", label, f"{label} {업체명}"))
+    for label in _space_variants("직위"):
+        patterns.append(("직위", label, f"{label} 대표이사"))
+    for label in _space_variants("성명"):
+        patterns.append(("성명-서명", label, f"{label} {대표자}"))
 
-    # ── 입찰명/발주처 (있으면 치환) ──
+    # ── 입찰명/발주처 ──
     if 입찰명:
-        for label in ["용역명 :", "사업명 :", "계약건명 :", "입찰명 :",
-                      "과 업 명 :", "과업명 :"]:
+        for label in _space_variants("입찰명") + _space_variants("용역명") + _space_variants("사업명") + [
+            "계약건명 :", "과 업 명 :", "과업명 :"]:
             patterns.append(("입찰명", label, f"{label} {입찰명}"))
     if 발주처:
-        for label in ["발주처 :", "발주기관 :", "발주기관명 :",
-                      "발 주 처 :", "발 주 기 관 :", "계약상대자 :"]:
+        for label in _space_variants("발주처") + _space_variants("발주기관") + [
+            "발주기관명 :", "기 관 명 :", "계약상대자 :"]:
             patterns.append(("발주처", label, f"{label} {발주처}"))
 
     # ── 법인등록번호 ──
     if 법인번호:
-        for label in ["법인등록번호 :", "법인 등록번호 :", "법인번호 :", "법 인 등 록 번 호 :"]:
+        for label in _space_variants("법인등록번호") + _space_variants("법인번호") + ["법인 등록번호 :"]:
             patterns.append(("법인등록번호", label, f"{label} {법인번호}"))
 
     # ═══════════════════════════════════════════════
