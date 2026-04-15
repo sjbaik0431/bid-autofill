@@ -173,7 +173,7 @@
       <h2><span class="icon">📂</span>양식 파일 선택</h2>
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:stretch;">
         <div class="upload-zone" style="flex:1;min-width:250px;margin-bottom:0;padding:16px;">
-          <input type="file" accept=".hwp" onchange="handleFormUpload(this)">
+          <input type="file" accept=".hwp,.hwpx" onchange="handleFormUpload(this)">
           <div class="upload-icon" style="font-size:24px;">📤</div>
           <div class="upload-text" style="font-size:13px;">새 양식 HWP 업로드</div>
           <div class="upload-hint">클릭 또는 드래그</div>
@@ -272,6 +272,8 @@
       </div>
       <!-- 항목별 상태 그리드 -->
       <div class="field-grid" id="fieldStatusGrid"></div>
+      <!-- 확장 정보 통계 뱃지 -->
+      <div id="extStatsRow" style="display:none;margin-top:14px;gap:8px;flex-wrap:wrap;justify-content:center;"></div>
     </div>
 
     <div class="card">
@@ -358,10 +360,10 @@
     <div class="card">
       <h2><span class="icon">📤</span>양식 파일 업로드</h2>
       <div class="upload-zone">
-        <input type="file" accept=".hwp" multiple onchange="handleFormUpload(this)">
+        <input type="file" accept=".hwp,.hwpx" multiple onchange="handleFormUpload(this)">
         <div class="upload-icon">📋</div>
         <div class="upload-text">정량평가 양식 HWP 파일을 여기에 드래그하거나 클릭하세요</div>
-        <div class="upload-hint">.hwp 파일만 가능 | 여러 파일 동시 업로드 가능</div>
+        <div class="upload-hint">.hwp / .hwpx 가능 | 여러 파일 동시 업로드 가능</div>
       </div>
     </div>
     <div class="card">
@@ -492,7 +494,8 @@ function showToast(msg,isError) {
 function handleFormUpload(input) {
   const store=loadStore();
   for(const f of input.files) {
-    if(!f.name.toLowerCase().endsWith('.hwp')){showToast('HWP 파일만 가능합니다',true);continue;}
+    const fn = f.name.toLowerCase();
+    if(!fn.endsWith('.hwp') && !fn.endsWith('.hwpx')){showToast('양식은 HWP/HWPX 파일만 가능합니다 (편집용)',true);continue;}
     const exists=store.forms.find(x=>x.name===f.name);
     if(!exists) store.forms.push({name:f.name, size:(f.size/1024).toFixed(0)+'KB', date:new Date().toISOString().slice(0,16).replace('T',' ')});
     showToast(`✅ ${f.name} 등록 완료`);
@@ -546,12 +549,60 @@ function loadCompanyUI() {
   });
   document.getElementById('headerCompany').textContent=info['업체명']||getCurrentCompanyName(store)||'';
   document.getElementById('headerSep').style.display=(info['업체명']||store.companies[store.currentCompanyId])?'inline':'none';
-  const staff=cdata['인력현황']||{};
-  let sh='';
-  for(const[d,ms]of Object.entries(staff)){if(Array.isArray(ms))ms.forEach(m=>{sh+=`<div>• <strong>${m['성명']}</strong> (${m['직위']}) - ${d} ${m['자격증']?'/ '+m['자격증']:''}</div>`;});}
-  document.getElementById('staffList').innerHTML=sh||'등록된 인력 없음';
-  document.getElementById('licenseList').innerHTML=(cdata['면허_허가_등록증']||[]).map(l=>`<div>• ${l['명칭']} (${l['등록번호']}) - ${l['발급기관']}</div>`).join('')||'없음';
-  document.getElementById('projectList').innerHTML=(cdata['사업수행실적']||[]).map(p=>`<div>• ${p['용역명']} / ${p['발주처']} / ${p['계약금액']}</div>`).join('')||'없음';
+  // ── 인력현황 (확장 필드 포함) ──
+  const allStaff = cdata['인력_전체'] || [];
+  let sh = '';
+  if (allStaff.length > 0) {
+    sh = `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">총 <strong style="color:#34d399">${allStaff.length}명</strong></div>`;
+    sh += '<table style="width:100%;font-size:12px;border-collapse:collapse;"><thead><tr style="color:#a78bfa;border-bottom:1px solid rgba(99,102,241,.2);"><th style="text-align:left;padding:6px 8px;">성명</th><th style="text-align:left;padding:6px 8px;">직위</th><th style="text-align:left;padding:6px 8px;">경력</th><th style="text-align:left;padding:6px 8px;">담당업무</th><th style="text-align:left;padding:6px 8px;">자격증</th></tr></thead><tbody>';
+    for (const p of allStaff) {
+      sh += `<tr style="border-bottom:1px solid rgba(71,85,105,.2);"><td style="padding:6px 8px;color:#e0e7ff;font-weight:600">${p.성명||''}</td><td style="padding:6px 8px;">${p.직위||''}</td><td style="padding:6px 8px;">${p.근무경력||''}</td><td style="padding:6px 8px;color:#94a3b8">${p.담당업무||''}</td><td style="padding:6px 8px;color:#94a3b8;font-size:11px;">${p.자격증?p.자격증+(p.취득일?' ('+p.취득일+')':''):'-'}</td></tr>`;
+    }
+    sh += '</tbody></table>';
+  } else {
+    // 구버전 포맷 fallback
+    const staff = cdata['인력현황']||{};
+    for (const [d, ms] of Object.entries(staff)) {
+      if (Array.isArray(ms)) ms.forEach(m => { sh += `<div>• <strong>${m['성명']}</strong> (${m['직위']}) - ${d} ${m['자격증']?'/ '+m['자격증']:''}</div>`; });
+    }
+  }
+  document.getElementById('staffList').innerHTML = sh || '등록된 인력 없음';
+
+  // ── 면허/등록증 ──
+  const licenses = cdata['면허_허가_등록증'] || [];
+  let lh = '';
+  if (licenses.length > 0) {
+    lh = `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">총 <strong style="color:#34d399">${licenses.length}건</strong></div>`;
+    lh += '<table style="width:100%;font-size:12px;border-collapse:collapse;"><thead><tr style="color:#a78bfa;border-bottom:1px solid rgba(99,102,241,.2);"><th style="text-align:left;padding:6px 8px;">명칭</th><th style="text-align:left;padding:6px 8px;">등록번호</th><th style="text-align:left;padding:6px 8px;">취득일</th><th style="text-align:left;padding:6px 8px;">발급기관</th></tr></thead><tbody>';
+    for (const l of licenses) {
+      lh += `<tr style="border-bottom:1px solid rgba(71,85,105,.2);"><td style="padding:6px 8px;color:#e0e7ff">${l.명칭||''}</td><td style="padding:6px 8px;font-family:monospace;font-size:11px;">${l.등록번호||''}</td><td style="padding:6px 8px;">${l.취득일||''}</td><td style="padding:6px 8px;">${l.발급기관||''}</td></tr>`;
+    }
+    lh += '</tbody></table>';
+  }
+  document.getElementById('licenseList').innerHTML = lh || '없음';
+
+  // ── 사업수행실적 ──
+  const projects = cdata['사업수행실적'] || [];
+  let ph = '';
+  if (projects.length > 0) {
+    ph = `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">총 <strong style="color:#34d399">${projects.length}건</strong></div>`;
+    ph += '<div style="display:flex;flex-direction:column;gap:8px;">';
+    for (const p of projects) {
+      ph += `<div style="background:rgba(15,23,42,.5);border:1px solid rgba(71,85,105,.25);border-radius:8px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+          <div style="color:#e0e7ff;font-weight:600;font-size:13px;">${p.연번?p.연번+'. ':''}${p.용역명||''}</div>
+          <div style="color:#34d399;font-weight:600;font-size:12px;white-space:nowrap;">${p.계약금액||''}</div>
+        </div>
+        ${p.용역개요?`<div style="color:#94a3b8;font-size:11px;margin-bottom:4px;line-height:1.4;">${p.용역개요}</div>`:''}
+        <div style="display:flex;gap:12px;font-size:11px;color:#64748b;flex-wrap:wrap;">
+          <span>📅 ${p.용역기간||''}</span>
+          ${p.발주처?`<span>🏢 ${p.발주처}</span>`:''}
+        </div>
+      </div>`;
+    }
+    ph += '</div>';
+  }
+  document.getElementById('projectList').innerHTML = ph || '없음';
   renderCompanySelector();
   updateCompletenessUI();
 }
@@ -603,6 +654,22 @@ function updateCompletenessUI() {
 
   // 항목별 그리드
   document.getElementById('fieldStatusGrid').innerHTML = gridHtml;
+
+  // 확장 정보 통계 뱃지
+  const cdata2 = getCurrentCompanyData(store);
+  const statStaff = (cdata2['인력_전체']||[]).length;
+  const statLic = (cdata2['면허_허가_등록증']||[]).length;
+  const statProj = (cdata2['사업수행실적']||[]).length;
+  const statsEl = document.getElementById('extStatsRow');
+  if (statsEl) {
+    const hasAny = statStaff + statLic + statProj > 0;
+    statsEl.style.display = hasAny ? 'flex' : 'none';
+    statsEl.innerHTML = hasAny ? `
+      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#34d399;">👥 인력 <strong>${statStaff}명</strong></div>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#a78bfa;">📜 면허 <strong>${statLic}건</strong></div>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#fb923c;">📊 실적 <strong>${statProj}건</strong></div>
+    ` : '';
+  }
 
   // 재분석 버튼 활성/비활성
   const reBtn = document.getElementById('btnReExtract');
@@ -861,6 +928,7 @@ function renderHistory() {
 
 // ── HWP 파일에서 회사정보 추출 (브라우저 내 처리) ──
 let _parsedCompanyData = {};
+let _parsedExtendedData = { 인력: [], 면허: [], 실적: [] };
 let _extractedRawText = '';
 
 // HWP 전용 파싱
@@ -1011,6 +1079,7 @@ async function extractHwpCompanyInfo(input) {
 
     _extractedRawText = allText;
     _parsedCompanyData = parseCompanyFromText(allText);
+    _parsedExtendedData = parseExtendedInfo(allText);
 
     // 결과 표시
     const resultDiv = document.getElementById('companyImportResult');
@@ -1025,6 +1094,18 @@ async function extractHwpCompanyInfo(input) {
       const valColor = val ? '#34d399' : '#f87171';
       const valText = val || '(미검출 - 직접 입력 필요)';
       html += `<div class="parsed-item"><div class="pk">${statusIcon} ${key}</div><div class="pv" style="color:${valColor}">${valText}</div></div>`;
+    }
+    // 확장 정보 요약 표시
+    const ext = _parsedExtendedData;
+    if (ext && (ext.인력.length || ext.면허.length || ext.실적.length)) {
+      html += `<div class="parsed-item" style="grid-column:1/-1;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25)">
+        <div class="pk" style="color:#34d399">📊 추가 추출된 정보</div>
+        <div class="pv" style="color:#cbd5e1;font-size:12px;line-height:1.6;">
+          👥 인력 <strong style="color:#34d399">${ext.인력.length}명</strong>&nbsp;·&nbsp;
+          📜 면허/등록증 <strong style="color:#34d399">${ext.면허.length}건</strong>&nbsp;·&nbsp;
+          📊 사업실적 <strong style="color:#34d399">${ext.실적.length}건</strong>
+        </div>
+      </div>`;
     }
     parsedDiv.innerHTML = html;
     // 헤더에 매칭 결과 요약
@@ -1226,6 +1307,109 @@ function parseCompanyFromText(text) {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════
+// 확장 파싱: 인력현황 / 면허등록증 / 사업수행실적
+// ═══════════════════════════════════════════════════════════
+function parseExtendedInfo(text) {
+  const lines = text.split('\n').map(l => l.trim());
+  const result = { 인력: [], 면허: [], 실적: [] };
+
+  // ═══ 1. 면허/허가/등록증 (4줄 단위 블록) ═══
+  // 헤더 "면허·허가·등록증명", "등록번호", "취득일", "발급기관" 이후 4줄씩
+  for (let i = 0; i < lines.length - 4; i++) {
+    const blockLabels = [lines[i], lines[i+1], lines[i+2]];
+    if (/^등\s*록?\s*번\s*호$/.test(blockLabels[0]) &&
+        /^(취\s*득\s*일|발\s*급\s*일)$/.test(blockLabels[1]) &&
+        /^발\s*급\s*기\s*관$/.test(blockLabels[2])) {
+      // 헤더 발견, 앞의 1줄이 '명칭' 헤더일 수도 있음. 블록 시작은 i+3부터
+      let j = i + 3;
+      while (j + 3 < lines.length) {
+        const name = lines[j], num = lines[j+1], date = lines[j+2], org = lines[j+3];
+        // 블록 유효성: 명칭이 있고, 번호가 한글+숫자+특수문자 조합
+        if (!name || name.length < 2) break;
+        // 섹션 종료 감지 (다른 라벨/서식 등장)
+        if (/^(【|서식\s*제|사업|업체|□|성\s*명|구\s*분|연\s*번)/.test(name)) break;
+        if (!num || num.length < 2 || num.length > 40) break;
+        // 다음 발급기관이 너무 길면 잘못된 블록
+        if (org.length > 40) break;
+        result.면허.push({
+          명칭: name, 등록번호: num, 취득일: date, 발급기관: org
+        });
+        j += 4;
+      }
+      break;
+    }
+  }
+
+  // ═══ 2. 인력현황 (성명-직위-경력-[자격,취득일-]담당업무 패턴) ═══
+  const 직위패턴 = /^(대표이사|부사장|전무|상무|이사|실장|소장|부장|차장|과장|대리|주임|사원|팀장|팀원|원장|책임|수석|선임|연구원|엔지니어|기사|기술자)$/;
+  const 경력패턴 = /^\d*\s*년\s*\d+\s*개월$/;
+  const 날짜패턴 = /^\d{4}[\.\-\/]\d{1,2}[\.\-\/]\d{1,2}$/;
+  const 한글이름 = /^[가-힣]{2,5}$/;
+  const 자격증패턴 = /^[가-힣][가-힣\sA-Za-z·]{1,25}$/;  // 건축기능사 등
+
+  for (let i = 0; i < lines.length - 3; i++) {
+    const name = lines[i];
+    const pos = lines[i+1];
+    const career = lines[i+2];
+    if (한글이름.test(name) && 직위패턴.test(pos) && 경력패턴.test(career)) {
+      let person = { 성명: name, 직위: pos, 근무경력: career.replace(/\s+/g,' ') };
+      // 다음 라인 추론: 자격증?+취득일? or 담당업무
+      if (i+4 < lines.length && 날짜패턴.test(lines[i+4]) && 자격증패턴.test(lines[i+3])) {
+        person.자격증 = lines[i+3];
+        person.취득일 = lines[i+4];
+        person.담당업무 = lines[i+5] || '';
+        i += 5;
+      } else {
+        person.담당업무 = lines[i+3] || '';
+        i += 3;
+      }
+      result.인력.push(person);
+    }
+  }
+
+  // ═══ 3. 사업수행실적 ═══
+  // 번호(1-50) → 용역명(1-2줄) → 용역개요(0-2줄) → 기간 → 금액 → 발주처
+  const 기간패턴 = /^\d{4}[\.\-\/]\d{1,2}[\.\-\/]\d{1,2}\.?\s*~\s*\d{4}[\.\-\/]\d{1,2}[\.\-\/]?\d{0,2}\.?\d*$/;
+  const 금액패턴 = /^[\d,]+\s*(천원|만원|백만원|억원?|천만원|원)$/;
+
+  for (let i = 0; i < lines.length - 5; i++) {
+    if (!/^\d{1,2}$/.test(lines[i])) continue;
+    const num = parseInt(lines[i]);
+    if (num < 1 || num > 50) continue;
+    // 다음 10줄 내에서 기간+금액 찾기
+    let periodIdx = -1, amountIdx = -1;
+    for (let j = i + 1; j <= i + 10 && j < lines.length; j++) {
+      if (periodIdx < 0 && 기간패턴.test(lines[j])) periodIdx = j;
+      if (periodIdx > 0 && amountIdx < 0 && 금액패턴.test(lines[j])) { amountIdx = j; break; }
+    }
+    if (periodIdx < 0 || amountIdx < 0) continue;
+
+    // 용역명은 보통 번호 바로 다음 1~2줄
+    const name = lines[i+1] || '';
+    // 용역개요는 용역명 이후부터 기간 앞까지
+    const outlineLines = lines.slice(i + 2, periodIdx).filter(l => l && !/^(용역|계약|발주|구분)/.test(l));
+    const outline = outlineLines.join(' ').replace(/\s+/g, ' ').trim();
+    // 발주처는 금액 다음 줄 (1~2칸 내)
+    let orgLine = '';
+    for (let k = amountIdx + 1; k <= amountIdx + 2 && k < lines.length; k++) {
+      if (lines[k] && lines[k].length < 60 && !/^\d/.test(lines[k])) { orgLine = lines[k]; break; }
+    }
+    if (!name || name.length > 100) continue;
+    result.실적.push({
+      연번: num,
+      용역명: name,
+      용역개요: outline.substring(0, 200),
+      용역기간: lines[periodIdx],
+      계약금액: lines[amountIdx],
+      발주처: orgLine
+    });
+    i = amountIdx + 1;
+  }
+
+  return result;
+}
+
 function applyParsedInfo() {
   if (!_parsedCompanyData || Object.keys(_parsedCompanyData).length === 0) {
     showToast('추출된 정보가 없습니다', true);
@@ -1270,6 +1454,85 @@ function applyParsedInfo() {
   }
 
   cdata['회사정보'] = info;
+
+  // ─── 확장 정보 병합 (인력/면허/실적) ───
+  let extApplied = 0;
+  const ext = _parsedExtendedData || {};
+  if (ext.인력 && ext.인력.length) {
+    if (mergeMode === 'overwrite_all') {
+      cdata['인력현황'] = {};
+      cdata['인력_전체'] = JSON.parse(JSON.stringify(ext.인력));
+      extApplied += ext.인력.length;
+    } else {
+      // 병합: 성명+직위 중복 체크
+      const prev = cdata['인력_전체'] || [];
+      const existing = new Set(prev.map(p => `${p.성명}|${p.직위}`));
+      for (const p of ext.인력) {
+        const key = `${p.성명}|${p.직위}`;
+        if (!existing.has(key)) {
+          prev.push(p); extApplied++; existing.add(key);
+        } else if (mergeMode === 'overwrite_if_diff') {
+          // 기존 찾아서 업데이트
+          const idx = prev.findIndex(x => x.성명 === p.성명 && x.직위 === p.직위);
+          if (idx >= 0) { prev[idx] = p; extApplied++; }
+        }
+      }
+      cdata['인력_전체'] = prev;
+    }
+    // 인력현황 옛 포맷도 유지 (담당업무별 분류)
+    const staffByDuty = {};
+    for (const p of (cdata['인력_전체'] || [])) {
+      const duty = p.담당업무 || '기타';
+      if (!staffByDuty[duty]) staffByDuty[duty] = [];
+      staffByDuty[duty].push(p);
+    }
+    cdata['인력현황'] = staffByDuty;
+  }
+
+  if (ext.면허 && ext.면허.length) {
+    const curL = cdata['면허_허가_등록증'] || [];
+    if (mergeMode === 'overwrite_all') {
+      cdata['면허_허가_등록증'] = ext.면허.map(l => ({
+        명칭: l.명칭, 등록번호: l.등록번호, 취득일: l.취득일, 발급기관: l.발급기관
+      }));
+      extApplied += ext.면허.length;
+    } else {
+      const existing = new Set(curL.map(l => `${l.명칭}|${l.등록번호}`));
+      for (const l of ext.면허) {
+        const key = `${l.명칭}|${l.등록번호}`;
+        if (!existing.has(key)) {
+          curL.push({명칭: l.명칭, 등록번호: l.등록번호, 취득일: l.취득일, 발급기관: l.발급기관});
+          extApplied++; existing.add(key);
+        }
+      }
+      cdata['면허_허가_등록증'] = curL;
+    }
+  }
+
+  if (ext.실적 && ext.실적.length) {
+    const curP = cdata['사업수행실적'] || [];
+    if (mergeMode === 'overwrite_all') {
+      cdata['사업수행실적'] = ext.실적.map(p => ({
+        연번: p.연번, 용역명: p.용역명, 용역개요: p.용역개요,
+        용역기간: p.용역기간, 계약금액: p.계약금액, 발주처: p.발주처
+      }));
+      extApplied += ext.실적.length;
+    } else {
+      const existing = new Set(curP.map(p => `${p.용역명}|${p.용역기간}`));
+      for (const p of ext.실적) {
+        const key = `${p.용역명}|${p.용역기간}`;
+        if (!existing.has(key)) {
+          curP.push({
+            연번: p.연번, 용역명: p.용역명, 용역개요: p.용역개요,
+            용역기간: p.용역기간, 계약금액: p.계약금액, 발주처: p.발주처
+          });
+          extApplied++; existing.add(key);
+        }
+      }
+      cdata['사업수행실적'] = curP;
+    }
+  }
+
   saveStore(store);
   loadCompanyUI();
 
@@ -1277,18 +1540,22 @@ function applyParsedInfo() {
   const curName = getCurrentCompanyName(store);
   let msg = '';
   if (mergeMode === 'fill_empty') {
-    msg = `✅ "${curName}"에 ${applied}개 신규 추가`;
-    if (skipped > 0) msg += ` / ${skipped}개 기존 유지 (값이 이미 있음)`;
+    msg = `✅ "${curName}"에 기본 ${applied}개 신규 추가`;
+    if (skipped > 0) msg += ` / ${skipped}개 기존 유지`;
   } else if (mergeMode === 'overwrite_all') {
-    msg = `✅ "${curName}"에 ${applied}개 반영`;
-    if (overwritten > 0) msg += ` (기존 값 ${overwritten}개 덮어씀)`;
+    msg = `✅ "${curName}"에 기본 ${applied}개 반영`;
+    if (overwritten > 0) msg += ` (덮어씀 ${overwritten}개)`;
   } else {
-    msg = `✅ "${curName}"에 ${applied}개 반영`;
-    if (overwritten > 0) msg += ` (변경 ${overwritten}건)`;
-    if (skipped > 0) msg += ` / ${skipped}개 동일값`;
+    msg = `✅ "${curName}"에 기본 ${applied}개 반영`;
+    if (overwritten > 0) msg += ` (변경 ${overwritten})`;
+    if (skipped > 0) msg += ` / ${skipped}개 동일`;
+  }
+  if (extApplied > 0) {
+    msg += ` + 확장정보 ${extApplied}건`;
   }
   showToast(msg);
   console.log('[applyParsedInfo] mode=' + mergeMode + '\n' + changes.join('\n'));
+  console.log('[applyParsedInfo] extended applied=' + extApplied, _parsedExtendedData);
 }
 
 function togglePreview() {

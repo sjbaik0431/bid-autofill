@@ -43,13 +43,10 @@ def replace_all(hwp, find, replace):
     hwp.HParameterSet.HFindReplace.FindType = 0
     return hwp.HAction.Execute("AllReplace", hwp.HParameterSet.HFindReplace.HSet)
 
-def build_patterns(info, bid_info):
+def build_patterns(info, bid_info, extended=None):
     """
     회사정보 + 입찰정보로 찾아바꾸기 패턴 목록 생성
-    ───────────────────────────────────────────────
-    양식마다 라벨 형식이 조금씩 다르므로,
-    같은 항목을 여러 패턴으로 등록합니다.
-    새 양식에서 매칭 안 되는 라벨이 있으면 여기에 추가하세요.
+    extended: dict with 인력/면허/실적 (확장 회사정보)
     """
     업체명 = info.get('업체명', '')
     대표자 = info.get('대표자', '')
@@ -60,6 +57,7 @@ def build_patterns(info, bid_info):
     자본금 = info.get('자본금', '')
     매출액 = info.get('전년도매출액', '')
     설립일 = info.get('설립일', '')
+    법인번호 = info.get('법인등록번호', '')
 
     입찰명 = bid_info.get('입찰명', '')
     발주처 = bid_info.get('발주처', '')
@@ -125,6 +123,38 @@ def build_patterns(info, bid_info):
                       "발 주 처 :", "발 주 기 관 :", "계약상대자 :"]:
             patterns.append(("발주처", label, f"{label} {발주처}"))
 
+    # ── 법인등록번호 ──
+    if 법인번호:
+        for label in ["법인등록번호 :", "법인 등록번호 :", "법인번호 :", "법 인 등 록 번 호 :"]:
+            patterns.append(("법인등록번호", label, f"{label} {법인번호}"))
+
+    # ═══════════════════════════════════════════════
+    # 확장 필드 (인력/면허/실적) 기반 자동 입력
+    # ═══════════════════════════════════════════════
+    if extended:
+        인력 = extended.get('인력', []) or []
+        면허 = extended.get('면허', []) or []
+        실적 = extended.get('실적', []) or []
+
+        # ── 대표이사 성명 (첫 번째 인력 또는 회사정보의 대표자) ──
+        if 인력:
+            총괄 = next((p for p in 인력 if '대표' in (p.get('직위','') or '') or p.get('담당업무','') == '총괄업무'), None)
+            if 총괄:
+                patterns.append(("총괄책임자성명", "총괄 책임자 :", f"총괄 책임자 : {총괄.get('성명','')}"))
+                patterns.append(("총괄책임자성명", "총괄책임자 :", f"총괄책임자 : {총괄.get('성명','')}"))
+
+        # ── 면허/등록증 주요 항목 (첫 번째 면허의 등록번호/발급기관) ──
+        if 면허:
+            주면허 = 면허[0]
+            patterns.append(("면허등록번호", "등 록 번 호 :", f"등 록 번 호 : {주면허.get('등록번호','')}"))
+            patterns.append(("면허발급기관", "발 급 기 관 :", f"발 급 기 관 : {주면허.get('발급기관','')}"))
+
+        # ── 사업수행실적 요약 ──
+        if 실적:
+            최근실적 = 실적[-1]  # 가장 최근
+            patterns.append(("최근실적명", "최근 용역명 :", f"최근 용역명 : {최근실적.get('용역명','')}"))
+            patterns.append(("실적건수", "실적 건수 :", f"실적 건수 : {len(실적)}건"))
+
     # ──────────────────────────────────────────
     # ★ 새 양식에서 매칭 안 되는 라벨이 있으면 여기에 추가 ★
     # 예시: patterns.append(("항목명", "찾을텍스트", "바꿀텍스트"))
@@ -157,6 +187,12 @@ def main():
     config = load_json(CONFIG_FILE, "설정")
 
     info = db["회사정보"]
+    # 확장 정보 (신규 구조 지원, 없어도 OK)
+    extended = {
+        '인력': db.get('인력_전체', []),
+        '면허': db.get('면허_허가_등록증', []),
+        '실적': db.get('사업수행실적', [])
+    }
     bid_info = config["입찰정보"]
     file_cfg = config["파일경로"]
     options = config.get("옵션", {})
@@ -232,7 +268,7 @@ def main():
         time.sleep(2)
 
     # ── 패턴 생성 ──
-    patterns = build_patterns(info, bid_info)
+    patterns = build_patterns(info, bid_info, extended)
     date_patterns = build_date_patterns(bid_info)
 
     # ── 자동입력 실행 ──
