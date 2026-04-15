@@ -6,6 +6,13 @@
 <title>입찰 정량평가 자동입력 시스템</title>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/cfb@1.2.2/dist/cfb.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  // pdf.js worker 설정
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
@@ -268,19 +275,19 @@
     </div>
 
     <div class="card">
-      <h2><span class="icon">📤</span>회사정보 HWP 파일에서 자동 추출</h2>
-      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">기존에 작성된 회사정보 HWP 파일을 업로드하면 자동으로 정보를 추출합니다.</p>
+      <h2><span class="icon">📤</span>회사정보 파일에서 자동 추출 <span style="font-size:12px;color:#64748b;font-weight:400;">— HWP / PDF 지원</span></h2>
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">기존에 작성된 회사정보 HWP 또는 PDF 파일을 업로드하면 자동으로 정보를 추출합니다.</p>
       <div style="display:flex;gap:12px;align-items:stretch;flex-wrap:wrap;">
         <div class="upload-zone" id="companyUploadZone" style="flex:1;min-width:250px;margin-bottom:0;">
-          <input type="file" accept=".hwp" onchange="extractHwpCompanyInfo(this)">
+          <input type="file" accept=".hwp,.hwpx,.pdf" onchange="extractHwpCompanyInfo(this)">
           <div class="upload-icon">📄</div>
-          <div class="upload-text">HWP 파일을 여기에 드래그하거나 클릭</div>
-          <div class="upload-hint">.hwp 파일만 가능</div>
+          <div class="upload-text">HWP 또는 PDF 파일을 여기에 드래그하거나 클릭</div>
+          <div class="upload-hint">.hwp / .hwpx / .pdf 가능</div>
         </div>
         <div style="display:flex;flex-direction:column;justify-content:center;gap:8px;">
           <label class="btn btn-primary" style="cursor:pointer;margin:0;">
             📂 파일 선택하기
-            <input type="file" accept=".hwp" onchange="extractHwpCompanyInfo(this)" style="display:none;">
+            <input type="file" accept=".hwp,.hwpx,.pdf" onchange="extractHwpCompanyInfo(this)" style="display:none;">
           </label>
           <div style="font-size:11px;color:#64748b;text-align:center;">또는 좌측 영역에<br>드래그 & 드롭</div>
         </div>
@@ -623,7 +630,8 @@ async function reExtractFromLastFile() {
     const bin = atob(lastB64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], lastName, {type: 'application/x-hwp'});
+    const mime = /\.pdf$/i.test(lastName) ? 'application/pdf' : 'application/x-hwp';
+    const file = new File([bytes], lastName, {type: mime});
     // 가짜 input 객체 생성
     const fakeInput = {
       files: [file],
@@ -855,15 +863,109 @@ function renderHistory() {
 let _parsedCompanyData = {};
 let _extractedRawText = '';
 
+// HWP 전용 파싱
+async function _parseHwpFile(data) {
+  const cfb = CFB.read(data, {type: 'array'});
+  let allText = '';
+  // v1.2.2 API: cfb.FullPaths 사용 (cfb_dir 제거됨)
+  const bodyEntries = (cfb.FullPaths || [])
+    .filter(p => p && /BodyText\/Section\d+$/i.test(p))
+    .sort();
+  if (bodyEntries.length === 0) {
+    throw new Error('HWP 파일에 BodyText 스트림이 없습니다. 올바른 HWP 파일인지 확인하세요.');
+  }
+  for (const entryPath of bodyEntries) {
+    try {
+      const stream = CFB.find(cfb, entryPath);
+      if (!stream || !stream.content || stream.content.length === 0) continue;
+      let buf = stream.content;
+      try { buf = pako.inflateRaw(buf); } catch(e1) {
+        try { buf = pako.inflate(buf); } catch(e2) { /* 비압축 */ }
+      }
+      // HWP 레코드 구조 파싱 - PARA_TEXT(tag 0x0043)만 추출
+      let off = 0;
+      while (off + 4 <= buf.length) {
+        const hdr = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
+        const tagId = hdr & 0x3FF;
+        let sz = (hdr >>> 20) & 0xFFF;
+        off += 4;
+        if (sz === 0xFFF) {
+          if (off + 4 > buf.length) break;
+          sz = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
+          off += 4;
+        }
+        if (off + sz > buf.length) break;
+        if (tagId === 0x0043) { // PARA_TEXT
+          const rec = buf.slice(off, off + sz);
+          allText += _extractParaText(rec) + '\n';
+        }
+        off += sz;
+      }
+    } catch(streamErr) {
+      console.warn('스트림 처리 실패:', entryPath, streamErr);
+    }
+  }
+  return allText;
+}
+
+// PDF 전용 파싱 (pdf.js)
+async function _parsePdfFile(data) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF 라이브러리(pdf.js)가 로드되지 않았습니다. 인터넷 연결을 확인하세요.');
+  }
+  const loadingTask = pdfjsLib.getDocument({data: data});
+  const pdf = await loadingTask.promise;
+  let allText = '';
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    try {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      // y 좌표 기준으로 라인 그룹핑 (표 구조 보존)
+      const items = textContent.items;
+      if (!items.length) continue;
+      // transform[5] = y 좌표. y가 비슷한 것들끼리 한 줄
+      const lines = [];
+      let currentLine = [];
+      let lastY = null;
+      const Y_THRESHOLD = 3; // 3 미만 차이면 같은 줄
+      for (const it of items) {
+        const y = it.transform[5];
+        const x = it.transform[4];
+        if (lastY === null || Math.abs(lastY - y) < Y_THRESHOLD) {
+          currentLine.push({x: x, str: it.str});
+        } else {
+          lines.push(currentLine);
+          currentLine = [{x: x, str: it.str}];
+        }
+        lastY = y;
+      }
+      if (currentLine.length) lines.push(currentLine);
+      // 각 줄을 x 좌표 순으로 정렬 후 공백으로 연결
+      for (const line of lines) {
+        line.sort((a, b) => a.x - b.x);
+        const lineStr = line.map(l => l.str).join(' ').replace(/\s+/g, ' ').trim();
+        if (lineStr) allText += lineStr + '\n';
+      }
+      allText += '\n';
+    } catch(pageErr) {
+      console.warn(`PDF 페이지 ${pageNum} 처리 실패:`, pageErr);
+    }
+  }
+  return allText;
+}
+
 async function extractHwpCompanyInfo(input) {
   const file = input.files[0];
   if (!file) return;
-  if (!file.name.toLowerCase().endsWith('.hwp')) {
-    showToast('HWP 파일만 가능합니다', true);
+  const name = file.name.toLowerCase();
+  const isHwp = name.endsWith('.hwp') || name.endsWith('.hwpx');
+  const isPdf = name.endsWith('.pdf');
+  if (!isHwp && !isPdf) {
+    showToast('HWP 또는 PDF 파일만 가능합니다', true);
     input.value = '';
     return;
   }
-  showToast('📄 HWP 파일 분석 중...');
+  showToast(`📄 ${isPdf ? 'PDF' : 'HWP'} 파일 분석 중...`);
   try {
     const arrayBuf = await file.arrayBuffer();
     const data = new Uint8Array(arrayBuf);
@@ -880,49 +982,29 @@ async function extractHwpCompanyInfo(input) {
       }
     }
 
-    // CFB(OLE) 파싱
-    const cfb = CFB.read(data, {type: 'array'});
     let allText = '';
-
-    // BodyText 스트림 찾기
-    const entries = CFB.utils.cfb_dir(cfb);
-    const bodyEntries = entries.filter(e => e && e.indexOf('BodyText') !== -1).sort();
-
-    for (const entry of bodyEntries) {
-      try {
-        const stream = CFB.find(cfb, entry);
-        if (!stream || !stream.content || stream.content.length === 0) continue;
-        let buf = stream.content;
-        // zlib 압축 해제
-        try { buf = pako.inflateRaw(buf); } catch(e1) {
-          try { buf = pako.inflate(buf); } catch(e2) { /* 비압축 */ }
-        }
-        // HWP 레코드 구조 파싱 - PARA_TEXT(tag 0x0043)만 추출
-        let off = 0;
-        while (off + 4 <= buf.length) {
-          const hdr = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
-          const tagId = hdr & 0x3FF;
-          let sz = (hdr >>> 20) & 0xFFF;
-          off += 4;
-          if (sz === 0xFFF) {
-            if (off + 4 > buf.length) break;
-            sz = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
-            off += 4;
-          }
-          if (off + sz > buf.length) break;
-          if (tagId === 0x0043) { // PARA_TEXT
-            const rec = buf.slice(off, off + sz);
-            allText += _extractParaText(rec) + '\n';
-          }
-          off += sz;
-        }
-      } catch(streamErr) {
-        console.warn('스트림 처리 실패:', entry, streamErr);
+    try {
+      if (isPdf) {
+        allText = await _parsePdfFile(data);
+        // PDF는 글자 사이에 공백이 들어가는 경우가 많음 → 라벨 정규화
+        // 예: "대 표 자 :" 같은 한글 라벨은 유지, "( 인 )" → "(인)" 축소
+        allText = allText
+          .replace(/\(\s+([가-힣])\s+\)/g, '($1)')   // ( 인 ) → (인)
+          .replace(/\(\s+([가-힣][가-힣\s]+[가-힣])\s+\)/g, (m, p) => '(' + p.replace(/\s+/g,'') + ')') // ( 서 명 ) → (서명)
+          .replace(/(\d)\s+-\s+(\d)/g, '$1-$2')      // 132 - 86 - 19299 → 132-86-19299
+          .replace(/(\d)\s+(\d{4})\s*년/g, '$1$2년'); // 잔여 스페이스 정리
+      } else {
+        allText = await _parseHwpFile(data);
       }
+    } catch(parseErr) {
+      console.error('파싱 오류:', parseErr);
+      showToast(`❌ ${parseErr.message || parseErr}`, true);
+      input.value = '';
+      return;
     }
 
     if (!allText.trim()) {
-      showToast('❌ HWP 텍스트를 추출할 수 없습니다. 파일 형식을 확인하세요.', true);
+      showToast('❌ 파일에서 텍스트를 추출할 수 없습니다. 스캔된 이미지 PDF거나 파일이 손상된 경우일 수 있습니다.', true);
       input.value = '';
       return;
     }
@@ -981,11 +1063,73 @@ function _extractParaText(rec) {
   return chars.join('').trim();
 }
 
+// 값 정규화 (HWP/PDF 공통)
+function _normalizeValue(val) {
+  if (!val) return '';
+  return val
+    .replace(/\s*[\(（]\s*인\s*[\)）]/g, '')       // (인), ( 인 ) 등 제거
+    .replace(/\s*[\(（]\s*서\s*명\s*[\)）]/g, '')  // (서명) 제거
+    .replace(/\s+/g, ' ')                         // 연속 공백 → 단일 공백
+    .trim();
+}
+// Placeholder 판정 (실제 값이 아닌 라벨형)
+function _isPlaceholder(val) {
+  if (!val) return true;
+  // "(휴대폰번호)", "(연락처)", "( 번호 )" 등
+  return /^[\(（][가-힣\s]+[\)）]$/.test(val.trim());
+}
+
+// 문장형 텍스트 감지 (위임장, 증명서 등 긴 문장이 잘못 잡히는 것 방지)
+function _looksLikeSentence(val) {
+  if (!val) return false;
+  // 조사 + 서술형 어미가 많으면 문장
+  const sentenceMarkers = /(합니다|하였|위임|증명|시행|서약|확약|별첨|아래|다음과|포함|제출|신청|대리|상기)/;
+  return sentenceMarkers.test(val) && val.length > 25;
+}
+
+// 필드별 값 검증 (각 필드 특성에 맞는지)
+function _isValidFieldValue(key, val) {
+  if (!val || val.length < 1) return false;
+  if (_isPlaceholder(val)) return false;
+  if (_looksLikeSentence(val)) return false;
+
+  // 필드별 길이/패턴 제약
+  switch(key) {
+    case '업체명':
+      if (val.length > 50) return false;
+      if (/(에서|시행|참가|신청|위임|증명|입찰|공고)/.test(val)) return false;
+      return true;
+    case '대표자':
+      if (val.length > 20) return false;
+      // 한글 이름 또는 간단한 이름 형식
+      return /^[가-힣A-Za-z][가-힣A-Za-z\s]{1,15}$/.test(val.replace(/\s+/g,' ').trim());
+    case '사업자번호':
+      return /\d{3}-?\d{2}-?\d{5}/.test(val) && val.length < 20;
+    case '주소':
+      if (val.length > 100) return false;
+      if (/(에서|시행|참가|신청|위임|증명)/.test(val)) return false;
+      // 주소는 보통 시/도/구/군 같은 단어 포함
+      return /(시|도|구|군|읍|면|동|로|길|층|호)/.test(val);
+    case '전화번호':
+    case 'FAX':
+      // 반드시 전화번호 형식 (02-xxx-xxxx, 010-xxxx-xxxx, 043-xxx-xxxx 등)
+      return /\d{2,4}-\d{3,4}-\d{4}/.test(val) && val.length < 25;
+    case '설립일':
+      return /\d{4}\s*년/.test(val) && val.length < 30;
+    case '자본금':
+    case '전년도매출액':
+      // 금액은 숫자 + 단위 (백만원, 억원, 만원 등) 또는 숫자-콤마
+      return /[\d,]+/.test(val) && /(원|만|백만|억|천)/.test(val) && val.length < 40;
+    default:
+      return val.length < 100;
+  }
+}
+
 function parseCompanyFromText(text) {
   const result = {};
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  // ── 1단계: "라벨 : 값" 같은줄 패턴 (값이 있는 것만) ──
+  // ── 1단계: "라벨 : 값" 같은줄 패턴 ──
   const sameLinePatterns = [
     {key:'업체명', regexes:[/^업\s*체\s*명\s*[:：]\s*(.+)/,/^회\s*사\s*명\s*[:：]\s*(.+)/,/^상\s*호\s*[:：]\s*(.+)/]},
     {key:'대표자', regexes:[/^대\s*표\s*자\s*[:：]\s*(.+)/,/^대\s*표\s*이\s*사\s*[:：]\s*(.+)/]},
@@ -1001,15 +1145,13 @@ function parseCompanyFromText(text) {
     for (const regex of p.regexes) {
       for (const line of lines) {
         const m = line.match(regex);
-        if (m) {
-          let val = m[1].trim();
-          val = val.replace(/\s*[\(（]인[\)）]\s*$/, '').replace(/\s*[\(（]서명[\)）]\s*$/, '').trim();
-          val = val.split(/\s{3,}|\t/)[0].trim();
-          if (val && val.length > 0 && val.length < 150) {
-            result[p.key] = val;
-            break;
-          }
-        }
+        if (!m) continue;
+        let val = m[1].trim();
+        val = val.split(/\s{3,}|\t/)[0].trim();  // 긴 공백/탭 뒤는 잘라냄 (표 다음 셀)
+        val = _normalizeValue(val);
+        if (!_isValidFieldValue(p.key, val)) continue;
+        result[p.key] = val;
+        break;
       }
       if (result[p.key]) break;
     }
@@ -1017,7 +1159,7 @@ function parseCompanyFromText(text) {
 
   // ── 2단계: 표 형식 (라벨이 한 줄, 값이 다음 줄) ──
   const nextLinePatterns = [
-    {key:'업체명', regexes:[/^업\s*체\s*명$/,/^회\s*사\s*명$/]},
+    {key:'업체명', regexes:[/^업\s*체\s*명$/,/^회\s*사\s*명$/,/^상\s*호$/]},
     {key:'대표자', regexes:[/^대\s*표\s*자$/,/^대\s*표\s*이\s*사$/]},
     {key:'사업자번호', regexes:[/^사\s*업\s*자\s*번?\s*호$/,/^사\s*업\s*자\s*등\s*록\s*번\s*호$/]},
     {key:'주소', regexes:[/^주\s*소$/,/^소\s*재\s*지$/]},
@@ -1027,21 +1169,32 @@ function parseCompanyFromText(text) {
     {key:'자본금', regexes:[/^자\s*본\s*금$/]},
     {key:'전년도매출액', regexes:[/^전\s*년\s*도?\s*매\s*출\s*액?$/,/^매\s*출\s*액$/]}
   ];
+  // 다른 라벨 감지용 정규식 집합 (값이 라벨이면 건너뛰기용)
+  const allLabelPats = [].concat(...nextLinePatterns.map(p => p.regexes));
+  const looksLikeLabel = (s) => allLabelPats.some(r => r.test(s));
+
   for (const p of nextLinePatterns) {
     if (result[p.key]) continue;
     for (const regex of p.regexes) {
       let found = false;
       for (let i = 0; i < lines.length; i++) {
-        if (regex.test(lines[i]) && i + 1 < lines.length) {
-          let val = lines[i + 1].trim();
-          if (!val || val.length > 150) continue;
-          val = val.replace(/\s*[\(（]인[\)）]\s*$/, '').trim();
-          if (val && val.length > 0) {
-            result[p.key] = val;
-            found = true;
+        if (!regex.test(lines[i]) || i + 1 >= lines.length) continue;
+        // 다음 줄을 최대 2칸까지 시도 (placeholder일 때만 확장)
+        for (let j = 1; j <= 2 && i + j < lines.length; j++) {
+          let val = lines[i + j].trim();
+          if (!val) continue;
+          if (looksLikeLabel(val)) break;  // 다른 라벨이 나오면 그 방향 포기
+          val = _normalizeValue(val);
+          if (!_isValidFieldValue(p.key, val)) {
+            // placeholder면 한 칸 더 시도, 그 외엔 포기
+            if (_isPlaceholder(lines[i + j].trim())) continue;
             break;
           }
+          result[p.key] = val;
+          found = true;
+          break;
         }
+        if (found) break;
       }
       if (found) break;
     }
@@ -1059,10 +1212,15 @@ function parseCompanyFromText(text) {
   if (!result['설립일']) {
     for (let i = 0; i < lines.length; i++) {
       if (/^설\s*립\s*일$/.test(lines[i]) && i + 1 < lines.length) {
-        const m2 = lines[i+1].match(/(\d{4}년.*)/);
-        if (m2) { result['설립일'] = m2[1].trim(); break; }
+        const m2 = lines[i+1].match(/(\d{4}\s*년[\s\d월일]+)/);
+        if (m2) { result['설립일'] = _normalizeValue(m2[1]); break; }
       }
     }
+  }
+
+  // 최종 정규화 (혹시 누락된 것 정리)
+  for (const k of Object.keys(result)) {
+    result[k] = _normalizeValue(result[k]);
   }
 
   return result;
