@@ -362,6 +362,16 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
             except: pass
             status["progress"] = len(patterns) + i + 1
             if demo_mode: time.sleep(1.0)
+        # ═══ 확장 데이터: 표 셀 직접 입력 (인력/면허/실적/연혁/강점) ═══
+        status["current_task"] = "표 데이터 입력 중..."
+        try:
+            from autofill import fill_extended_data
+            ext_count = fill_extended_data(hwp, info, extended, status["log"])
+            ok_count += ext_count
+            status["log"].append(f"📋 표 입력 완료: {ext_count}건 추가")
+        except Exception as ext_err:
+            status["log"].append(f"⚠️ 확장 데이터 입력 실패 (기본 치환은 완료): {ext_err}")
+
         status["current_task"] = "저장 중..."
         status["log"].append("💾 HWP 저장")
         hwp.SaveAs(output_hwp, "HWP")
