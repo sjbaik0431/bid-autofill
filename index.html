@@ -353,6 +353,26 @@
       <h2><span class="icon">📊</span>사업수행실적</h2>
       <div id="projectList" style="font-size:13px;color:#94a3b8;line-height:2;"></div>
     </div>
+
+    <div class="card">
+      <h2><span class="icon">📅</span>주요연혁</h2>
+      <div id="historyList" style="font-size:13px;color:#94a3b8;line-height:2;"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">⭐</span>회사 강점/소개</h2>
+      <div id="strengthList" style="font-size:13px;color:#94a3b8;line-height:1.7;"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">📋</span>추가 정보 <span style="font-size:12px;color:#64748b;font-weight:400;">— 임직원수·사업기간·법인번호 등</span></h2>
+      <div id="extraInfoList" style="font-size:13px;color:#94a3b8;line-height:2;"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">🔍</span>기타 데이터 <span style="font-size:12px;color:#64748b;font-weight:400;">— 원문에서 자동 인식한 라벨:값 쌍</span></h2>
+      <div id="miscDataList" style="font-size:13px;color:#94a3b8;line-height:2;"></div>
+    </div>
   </div>
 
   <!-- ═══ 탭3: 양식 관리 ═══ -->
@@ -603,6 +623,90 @@ function loadCompanyUI() {
     ph += '</div>';
   }
   document.getElementById('projectList').innerHTML = ph || '없음';
+
+  // ── 연혁 ──
+  const history = cdata['연혁'] || [];
+  let hh = '';
+  if (history.length > 0) {
+    hh = `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">총 <strong style="color:#34d399">${history.length}건</strong></div>`;
+    hh += '<div style="display:flex;flex-direction:column;gap:6px;">';
+    const grouped = {};
+    for (const h of history) {
+      if (!grouped[h.연도]) grouped[h.연도] = [];
+      grouped[h.연도].push(h.내용);
+    }
+    const years = Object.keys(grouped).sort().reverse();
+    for (const y of years) {
+      hh += `<div style="display:flex;gap:12px;align-items:start;padding:8px 12px;background:rgba(15,23,42,.4);border-radius:6px;border-left:3px solid #a78bfa;">
+        <strong style="color:#a78bfa;min-width:50px;font-size:13px;">${y}</strong>
+        <div style="color:#cbd5e1;font-size:12px;line-height:1.5;">${grouped[y].join('<br>')}</div>
+      </div>`;
+    }
+    hh += '</div>';
+  }
+  const histEl = document.getElementById('historyList');
+  if (histEl) histEl.innerHTML = hh || '없음';
+
+  // ── 강점/소개 ──
+  const strengths = cdata['강점'] || [];
+  let sth = '';
+  if (strengths.length > 0) {
+    sth = '<div style="display:flex;flex-direction:column;gap:12px;">';
+    for (const s of strengths) {
+      sth += `<div style="padding:10px 14px;background:rgba(139,92,246,.05);border:1px solid rgba(139,92,246,.2);border-radius:8px;">
+        <div style="color:#c4b5fd;font-weight:600;font-size:13px;margin-bottom:6px;">${s.제목||''}</div>`;
+      if (s.내용 && s.내용.length) {
+        sth += '<ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:12px;line-height:1.6;">';
+        for (const item of s.내용) {
+          sth += `<li style="margin-bottom:3px;">${item}</li>`;
+        }
+        sth += '</ul>';
+      }
+      sth += '</div>';
+    }
+    sth += '</div>';
+  }
+  const strEl = document.getElementById('strengthList');
+  if (strEl) strEl.innerHTML = sth || '없음';
+
+  // ── 추가정보 (임직원수, 사업기간 등) ──
+  const extra = cdata['추가정보'] || {};
+  let exh = '';
+  const extraFields = [
+    ['임직원수', '👥'], ['상근인원', '🏢'], ['비상근인원', '🏠'],
+    ['사업기간', '📅'], ['해당부문', '🎯'], ['법인등록번호', '🔢']
+  ];
+  const filledExtra = extraFields.filter(([k]) => extra[k]);
+  if (filledExtra.length > 0) {
+    exh = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">';
+    for (const [key, icon] of filledExtra) {
+      exh += `<div style="padding:10px 14px;background:rgba(15,23,42,.5);border:1px solid rgba(71,85,105,.25);border-radius:8px;">
+        <div style="font-size:11px;color:#64748b;margin-bottom:2px;">${icon} ${key}</div>
+        <div style="font-size:13px;color:#e0e7ff;font-weight:500;">${extra[key]}</div>
+      </div>`;
+    }
+    exh += '</div>';
+  }
+  const exEl = document.getElementById('extraInfoList');
+  if (exEl) exEl.innerHTML = exh || '없음';
+
+  // ── 기타 데이터 (일반 라벨:값) ──
+  const misc = cdata['일반데이터'] || {};
+  const miscKeys = Object.keys(misc);
+  let mih = '';
+  if (miscKeys.length > 0) {
+    mih = `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">원문에서 자동 감지한 라벨/값 쌍 <strong style="color:#34d399">${miscKeys.length}개</strong></div>`;
+    mih += '<table style="width:100%;font-size:12px;border-collapse:collapse;"><tbody>';
+    for (const k of miscKeys) {
+      mih += `<tr style="border-bottom:1px solid rgba(71,85,105,.15);">
+        <td style="padding:6px 10px;color:#a78bfa;font-weight:500;width:30%;white-space:nowrap;">${k}</td>
+        <td style="padding:6px 10px;color:#cbd5e1;">${misc[k]}</td>
+      </tr>`;
+    }
+    mih += '</tbody></table>';
+  }
+  const miEl = document.getElementById('miscDataList');
+  if (miEl) miEl.innerHTML = mih || '없음';
   renderCompanySelector();
   updateCompletenessUI();
 }
@@ -660,15 +764,21 @@ function updateCompletenessUI() {
   const statStaff = (cdata2['인력_전체']||[]).length;
   const statLic = (cdata2['면허_허가_등록증']||[]).length;
   const statProj = (cdata2['사업수행실적']||[]).length;
+  const statHist = (cdata2['연혁']||[]).length;
+  const statStr = (cdata2['강점']||[]).length;
+  const statMisc = Object.keys(cdata2['일반데이터']||{}).length;
   const statsEl = document.getElementById('extStatsRow');
   if (statsEl) {
-    const hasAny = statStaff + statLic + statProj > 0;
-    statsEl.style.display = hasAny ? 'flex' : 'none';
-    statsEl.innerHTML = hasAny ? `
-      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#34d399;">👥 인력 <strong>${statStaff}명</strong></div>
-      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#a78bfa;">📜 면허 <strong>${statLic}건</strong></div>
-      <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#fb923c;">📊 실적 <strong>${statProj}건</strong></div>
-    ` : '';
+    const totalExt = statStaff + statLic + statProj + statHist + statStr + statMisc;
+    statsEl.style.display = totalExt > 0 ? 'flex' : 'none';
+    const badges = [];
+    if (statStaff) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#34d399;">👥 인력 <strong>${statStaff}명</strong></div>`);
+    if (statLic) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#a78bfa;">📜 면허 <strong>${statLic}건</strong></div>`);
+    if (statProj) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#fb923c;">📊 실적 <strong>${statProj}건</strong></div>`);
+    if (statHist) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(236,72,153,.1);border:1px solid rgba(236,72,153,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#f472b6;">📅 연혁 <strong>${statHist}건</strong></div>`);
+    if (statStr) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(250,204,21,.1);border:1px solid rgba(250,204,21,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#facc15;">⭐ 강점 <strong>${statStr}개</strong></div>`);
+    if (statMisc) badges.push(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);padding:5px 12px;border-radius:20px;font-size:12px;color:#38bdf8;">🔍 기타 <strong>${statMisc}개</strong></div>`);
+    statsEl.innerHTML = badges.join('');
   }
 
   // 재분석 버튼 활성/비활성
@@ -1308,11 +1418,22 @@ function parseCompanyFromText(text) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 확장 파싱: 인력현황 / 면허등록증 / 사업수행실적
+// 확장 파싱: 인력/면허/실적 + 연혁/소개/임직원수/사업기간 + 일반 데이터
 // ═══════════════════════════════════════════════════════════
 function parseExtendedInfo(text) {
   const lines = text.split('\n').map(l => l.trim());
-  const result = { 인력: [], 면허: [], 실적: [] };
+  const result = {
+    인력: [], 면허: [], 실적: [],
+    연혁: [],           // 연도별 이벤트 리스트
+    강점: [],           // 회사 강점/소개 단락들
+    임직원수: '',       // "13명(상근13/비상근__)"
+    상근인원: '',       // 상근 숫자
+    비상근인원: '',     // 비상근 숫자
+    사업기간: '',       // "2013년 9월 ~ 2026년 4월 (12년 7개월)"
+    해당부문: '',       // 별도 필드
+    법인등록번호: '',
+    일반데이터: {}      // 기타 "라벨: 값" 패턴으로 잡힌 데이터
+  };
 
   // ═══ 1. 면허/허가/등록증 (4줄 단위 블록) ═══
   // 헤더 "면허·허가·등록증명", "등록번호", "취득일", "발급기관" 이후 4줄씩
@@ -1405,6 +1526,142 @@ function parseExtendedInfo(text) {
       발주처: orgLine
     });
     i = amountIdx + 1;
+  }
+
+  // ═══ 4. 임직원수 (상근/비상근) ═══
+  for (let i = 0; i < lines.length; i++) {
+    // 라벨형: "인력현황" 다음줄이 "13명(상근13/비상근__)"
+    if (/^인력\s*현황$/.test(lines[i]) && i + 1 < lines.length) {
+      const next = lines[i+1];
+      const m = next.match(/(\d+)\s*명\s*[(（]\s*상\s*근\s*(\d*|_+)\s*\/\s*비\s*상\s*근\s*(\d*|_+)\s*[)）]/);
+      if (m) {
+        result.임직원수 = m[0];
+        result.상근인원 = /^\d+$/.test(m[2]) ? m[2] : '';
+        result.비상근인원 = /^\d+$/.test(m[3]) ? m[3] : '';
+        break;
+      }
+      // 단순 N명 형식
+      const m2 = next.match(/^(\d+)\s*명/);
+      if (m2) {
+        result.임직원수 = m2[0];
+        break;
+      }
+    }
+  }
+
+  // ═══ 5. 사업기간 ═══
+  for (let i = 0; i < lines.length; i++) {
+    if (/^사\s*업\s*기\s*간$/.test(lines[i]) && i + 1 < lines.length) {
+      const next = lines[i+1];
+      if (/\d{4}\s*년.*~.*\d{4}\s*년/.test(next)) {
+        result.사업기간 = next.replace(/\s+/g, ' ').trim();
+        break;
+      }
+    }
+  }
+
+  // ═══ 6. 해당부문 ═══
+  for (let i = 0; i < lines.length; i++) {
+    if (/^해\s*당\s*부\s*문$/.test(lines[i]) && i + 1 < lines.length) {
+      const next = lines[i+1];
+      if (next && next.length > 0 && next.length < 80 &&
+          !/^(사업기간|면허|보유|등록|취득|발급)/.test(next)) {
+        result.해당부문 = _normalizeValue(next);
+        break;
+      }
+    }
+  }
+
+  // ═══ 7. 주요연혁 (연도별 리스트) ═══
+  for (let i = 0; i < lines.length; i++) {
+    if (/(주\s*요\s*연\s*혁|연\s*혁)/.test(lines[i]) && lines[i].length < 30) {
+      // 이후 연속 "○ YYYY ..." 패턴 수집
+      for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
+        const ln = lines[j];
+        if (!ln) continue;
+        // 새 섹션 시작이면 중단
+        if (/^(【|서식\s*제|□|제\s*안|결\s*론|\d\.\s*[가-힣])/.test(ln)) break;
+        const em = ln.match(/^[○•·◦]\s*(\d{4})[\s년]?\s*(.+)/);
+        if (em) {
+          result.연혁.push({
+            연도: em[1],
+            내용: em[2].trim().substring(0, 200)
+          });
+        }
+      }
+      if (result.연혁.length > 0) break;
+    }
+  }
+
+  // ═══ 8. 회사 강점/소개 (단락 텍스트) ═══
+  for (let i = 0; i < lines.length; i++) {
+    if (/(제\s*안\s*업\s*체\s*강\s*점|회\s*사\s*소\s*개|업\s*체\s*강\s*점|주\s*요\s*사\s*업|특\s*장\s*점)/.test(lines[i]) && lines[i].length < 30) {
+      let currentGroup = null;
+      for (let j = i + 1; j < Math.min(i + 40, lines.length); j++) {
+        const ln = lines[j];
+        if (!ln) continue;
+        if (/^(【|서식\s*제|□\s*주요|\d+\)\s+\w|【서)/.test(ln)) break;
+        // 숫자. 제목 형식
+        const titleMatch = ln.match(/^(\d+)\.\s*(.+)/);
+        if (titleMatch && ln.length < 60) {
+          if (currentGroup) result.강점.push(currentGroup);
+          currentGroup = { 제목: titleMatch[2].trim(), 내용: [] };
+        } else if (currentGroup && /^-\s/.test(ln)) {
+          currentGroup.내용.push(ln.replace(/^-\s*/, '').trim());
+        } else if (ln === '결 론' || ln === '결론') {
+          if (currentGroup) { result.강점.push(currentGroup); currentGroup = null; }
+          currentGroup = { 제목: '결론', 내용: [] };
+        } else if (currentGroup && ln.length > 5 && ln.length < 200) {
+          // 일반 텍스트 라인 (이어붙이기)
+          if (currentGroup.내용.length > 0 && !/^[\-○•·◦]/.test(ln)) {
+            currentGroup.내용[currentGroup.내용.length - 1] += ' ' + ln;
+          } else {
+            currentGroup.내용.push(ln);
+          }
+        }
+      }
+      if (currentGroup) result.강점.push(currentGroup);
+      if (result.강점.length > 0) break;
+    }
+  }
+
+  // ═══ 9. 법인등록번호 ═══
+  for (const line of lines) {
+    const m = line.match(/법인(?:등록)?번호\s*[:：]\s*(\d{6}-\d{7})/);
+    if (m) { result.법인등록번호 = m[1]; break; }
+    const m2 = line.match(/^(\d{6}-\d{7})$/);
+    if (m2 && !result.법인등록번호) {
+      // 다음 라인이 주민등록번호 형식(6-7)이 아닌 법인번호인지 컨텍스트 확인
+      // (단독 판정은 생략, 라벨 매칭만 사용)
+    }
+  }
+
+  // ═══ 10. 범용 "라벨 : 값" 일반 데이터 수집 ═══
+  // 이미 잡힌 필드 제외하고, 의미있는 라벨:값 쌍만 보관
+  const knownLabels = new Set([
+    '업체명','회사명','상호','업 체 명','회 사 명','상 호','주소','주 소','소재지',
+    '대표자','대표이사','대 표 자','대 표 이 사','사업자번호','사업자등록번호',
+    '전화번호','FAX','자본금','전년도매출액','매출액','설립일','법인등록번호',
+    '소속','직위','성명','입찰명','발주처','용역명','대리인','업체명:스페이스락'
+  ]);
+  const normalize = s => s.replace(/\s+/g, '').replace(/[:：]/g, '');
+  for (const line of lines) {
+    const m = line.match(/^([가-힣][가-힣A-Za-z/·\s]{1,18})\s*[:：]\s*(.+)/);
+    if (!m) continue;
+    const rawLabel = m[1].trim();
+    const normLabel = normalize(rawLabel);
+    if (knownLabels.has(rawLabel) || knownLabels.has(normLabel)) continue;
+    let val = m[2].trim();
+    val = val.replace(/\s*[\(（]인[\)）]\s*$/, '').replace(/\s*[\(（]서명[\)）]\s*$/, '').trim();
+    val = val.split(/\s{3,}|\t/)[0].trim();
+    // 값이 비어있거나 placeholder 는 스킵
+    if (!val || val.length < 1 || val.length > 150) continue;
+    if (/^[\(（][가-힣\s]+[\)）]$/.test(val)) continue;
+    // 문장형(위임장, 확약 등) 스킵
+    if (val.length > 40 && /(합니다|위임|증명|시행|서약|확약|귀하|적용|예외)/.test(val)) continue;
+    // 중복이면 이미 있는 값 유지
+    if (result.일반데이터[rawLabel]) continue;
+    result.일반데이터[rawLabel] = val;
   }
 
   return result;
@@ -1530,6 +1787,62 @@ function applyParsedInfo() {
         }
       }
       cdata['사업수행실적'] = curP;
+    }
+  }
+
+  // ─── 추가 정보 (임직원수/사업기간/연혁/강점/일반데이터) ───
+  // 단순 필드는 fill_empty 모드에서만 빈 경우 채움 (아니면 덮어씀)
+  const simpleFields = ['임직원수','상근인원','비상근인원','사업기간','해당부문','법인등록번호'];
+  if (!cdata['추가정보']) cdata['추가정보'] = {};
+  for (const k of simpleFields) {
+    if (!ext[k]) continue;
+    const existing = cdata['추가정보'][k];
+    if (mergeMode === 'fill_empty') {
+      if (!existing) { cdata['추가정보'][k] = ext[k]; extApplied++; }
+    } else if (mergeMode === 'overwrite_if_diff') {
+      if (existing !== ext[k]) { cdata['추가정보'][k] = ext[k]; extApplied++; }
+    } else {
+      cdata['추가정보'][k] = ext[k]; extApplied++;
+    }
+  }
+
+  // 연혁 (배열)
+  if (ext.연혁 && ext.연혁.length) {
+    if (mergeMode === 'overwrite_all' || !cdata['연혁'] || cdata['연혁'].length === 0) {
+      cdata['연혁'] = ext.연혁.map(h => ({연도: h.연도, 내용: h.내용}));
+      extApplied += ext.연혁.length;
+    } else {
+      const existing = new Set((cdata['연혁']||[]).map(h => `${h.연도}|${h.내용}`));
+      for (const h of ext.연혁) {
+        const key = `${h.연도}|${h.내용}`;
+        if (!existing.has(key)) {
+          cdata['연혁'].push({연도: h.연도, 내용: h.내용});
+          extApplied++; existing.add(key);
+        }
+      }
+    }
+  }
+
+  // 강점/소개 (배열)
+  if (ext.강점 && ext.강점.length) {
+    if (mergeMode === 'overwrite_all' || !cdata['강점'] || cdata['강점'].length === 0) {
+      cdata['강점'] = JSON.parse(JSON.stringify(ext.강점));
+      extApplied += ext.강점.length;
+    }
+  }
+
+  // 일반데이터 (객체)
+  if (ext.일반데이터 && Object.keys(ext.일반데이터).length) {
+    if (!cdata['일반데이터']) cdata['일반데이터'] = {};
+    for (const [k, v] of Object.entries(ext.일반데이터)) {
+      const existing = cdata['일반데이터'][k];
+      if (mergeMode === 'fill_empty' && !existing) {
+        cdata['일반데이터'][k] = v; extApplied++;
+      } else if (mergeMode === 'overwrite_if_diff' && existing !== v) {
+        cdata['일반데이터'][k] = v; extApplied++;
+      } else if (mergeMode === 'overwrite_all') {
+        cdata['일반데이터'][k] = v; extApplied++;
+      }
     }
   }
 

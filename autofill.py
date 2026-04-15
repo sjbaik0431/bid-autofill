@@ -46,7 +46,7 @@ def replace_all(hwp, find, replace):
 def build_patterns(info, bid_info, extended=None):
     """
     회사정보 + 입찰정보로 찾아바꾸기 패턴 목록 생성
-    extended: dict with 인력/면허/실적 (확장 회사정보)
+    extended: dict with 인력/면허/실적/추가정보/연혁/강점/일반데이터
     """
     업체명 = info.get('업체명', '')
     대표자 = info.get('대표자', '')
@@ -58,6 +58,16 @@ def build_patterns(info, bid_info, extended=None):
     매출액 = info.get('전년도매출액', '')
     설립일 = info.get('설립일', '')
     법인번호 = info.get('법인등록번호', '')
+
+    # 확장 추가정보 우선 사용
+    ext_info = (extended or {}).get('추가정보', {}) if extended else {}
+    if not 법인번호:
+        법인번호 = ext_info.get('법인등록번호', '')
+    임직원수 = ext_info.get('임직원수', '')
+    상근 = ext_info.get('상근인원', '')
+    비상근 = ext_info.get('비상근인원', '')
+    사업기간 = ext_info.get('사업기간', '')
+    해당부문 = ext_info.get('해당부문', '')
 
     입찰명 = bid_info.get('입찰명', '')
     발주처 = bid_info.get('발주처', '')
@@ -129,12 +139,42 @@ def build_patterns(info, bid_info, extended=None):
             patterns.append(("법인등록번호", label, f"{label} {법인번호}"))
 
     # ═══════════════════════════════════════════════
-    # 확장 필드 (인력/면허/실적) 기반 자동 입력
+    # 확장 필드 (인력/면허/실적/추가정보) 기반 자동 입력
     # ═══════════════════════════════════════════════
+    # ── 임직원수/상근/비상근 ──
+    if 임직원수:
+        for label in ["인력현황 :", "임직원수 :", "직원수 :", "인 력 현 황 :"]:
+            patterns.append(("임직원수", label, f"{label} {임직원수}"))
+    if 상근:
+        for label in ["상근 :", "상근인원 :", "상근직원 :"]:
+            patterns.append(("상근", label, f"{label} {상근}명"))
+    if 비상근:
+        for label in ["비상근 :", "비상근인원 :"]:
+            patterns.append(("비상근", label, f"{label} {비상근}명"))
+
+    # ── 사업기간 ──
+    if 사업기간:
+        for label in ["사업기간 :", "사 업 기 간 :", "영업기간 :"]:
+            patterns.append(("사업기간", label, f"{label} {사업기간}"))
+
+    # ── 해당부문 ──
+    if 해당부문:
+        for label in ["해당부문 :", "해 당 부 문 :", "업종 :"]:
+            patterns.append(("해당부문", label, f"{label} {해당부문}"))
+
     if extended:
         인력 = extended.get('인력', []) or []
         면허 = extended.get('면허', []) or []
         실적 = extended.get('실적', []) or []
+        일반 = extended.get('일반데이터', {}) or {}
+
+        # ── 범용 "라벨:값" 자동입력 (일반데이터) ──
+        for lbl, value in 일반.items():
+            if not value or len(str(value)) > 100:
+                continue
+            compact = lbl.replace(' ', '')
+            for lbl_pattern in [f"{lbl} :", f"{lbl}:", f"{compact} :"]:
+                patterns.append((f"기타-{lbl}", lbl_pattern, f"{lbl_pattern} {value}"))
 
         # ── 대표이사 성명 (첫 번째 인력 또는 회사정보의 대표자) ──
         if 인력:
@@ -191,7 +231,11 @@ def main():
     extended = {
         '인력': db.get('인력_전체', []),
         '면허': db.get('면허_허가_등록증', []),
-        '실적': db.get('사업수행실적', [])
+        '실적': db.get('사업수행실적', []),
+        '추가정보': db.get('추가정보', {}),
+        '연혁': db.get('연혁', []),
+        '강점': db.get('강점', []),
+        '일반데이터': db.get('일반데이터', {})
     }
     bid_info = config["입찰정보"]
     file_cfg = config["파일경로"]
