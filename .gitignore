@@ -6,3 +6,6 @@ company_master.json
 autofill_config.json
 *.hwp
 *.pdf
+실행로그.txt
+convert_bat.py
+fix_chcp.py
