@@ -235,54 +235,66 @@ def replace_all(hwp, find, replace):
     hwp.HParameterSet.HFindReplace.FindType = 0
     return hwp.HAction.Execute("AllReplace", hwp.HParameterSet.HFindReplace.HSet)
 
-def build_patterns(info, bid_info):
-    업체명 = info.get('업체명', '')
-    대표자 = info.get('대표자', '')
-    주소   = info.get('주소', '')
-    사번   = info.get('사업자번호', '')
-    전화   = info.get('전화번호', '')
-    팩스   = info.get('FAX', '')
-    자본금 = info.get('자본금', '')
-    매출액 = info.get('전년도매출액', '')
-    설립일 = info.get('설립일', '')
-    입찰명 = bid_info.get('입찰명', '')
-    발주처 = bid_info.get('발주처', '')
-    patterns = []
-    for label in ["업 체 명 :", "업체명 :", "회사명 :", "업체명:", "업    체    명 :", "상 호 :", "상호 :"]:
-        patterns.append(("업체명", label, f"{label} {업체명}"))
-    for label in ["대 표 자 :", "대표자 :", "대표자:", "대 표 이 사 :", "대표이사 :"]:
-        patterns.append(("대표자", label, f"{label} {대표자}"))
-    for label in ["주    소 :", "주  소 :", "주소 :", "주소:", "소 재 지 :", "소재지 :"]:
-        patterns.append(("주소", label, f"{label} {주소}"))
-    for label in ["사업자등록번호 :", "사업자등록번호:", "사 업 자 등 록 번 호 :", "사업자번호 :"]:
-        patterns.append(("사업자번호", label, f"{label} {사번}"))
-    for label in ["전화번호 :", "전화번호:", "전 화 번 호 :", "TEL :", "전화 :", "연락처 :"]:
-        patterns.append(("전화번호", label, f"{label} {전화}"))
-    for label in ["FAX :", "FAX:", "팩스 :", "F A X :"]:
-        patterns.append(("FAX", label, f"{label} {팩스}"))
-    for label in ["자본금 :", "자본금:", "자 본 금 :"]:
-        patterns.append(("자본금", label, f"{label} {자본금}"))
-    for label in ["전년도매출액 :", "매출액 :", "매출액:", "전년도 매출액 :"]:
-        patterns.append(("매출액", label, f"{label} {매출액}"))
-    for label in ["설립일 :", "설립일:", "설 립 일 :"]:
-        patterns.append(("설립일", label, f"{label} {설립일}"))
-    patterns.append(("소속", "소속 :", f"소속 : {업체명}"))
-    patterns.append(("직위", "직위 :", f"직위 : 대표이사"))
-    patterns.append(("성명", "성명 :", f"성명 : {대표자}"))
-    if 입찰명:
-        for label in ["용역명 :", "사업명 :"]:
-            patterns.append(("입찰명", label, f"{label} {입찰명}"))
-    if 발주처:
-        for label in ["발주처 :", "발주기관 :"]:
-            patterns.append(("발주처", label, f"{label} {발주처}"))
-    return patterns
+try:
+    from autofill import build_patterns as _autofill_build_patterns
+    def build_patterns(info, bid_info, extended=None):
+        """autofill.py의 풍부한 패턴(인력/면허/실적/추가정보/일반데이터 포함)을 사용"""
+        return _autofill_build_patterns(info, bid_info, extended)
+except Exception as _e:
+    print(f"[경고] autofill.py 로드 실패, 기본 패턴만 사용: {_e}")
+    def build_patterns(info, bid_info, extended=None):
+        업체명 = info.get('업체명', ''); 대표자 = info.get('대표자', '')
+        주소 = info.get('주소', ''); 사번 = info.get('사업자번호', '')
+        전화 = info.get('전화번호', ''); 팩스 = info.get('FAX', '')
+        자본금 = info.get('자본금', ''); 매출액 = info.get('전년도매출액', '')
+        설립일 = info.get('설립일', '')
+        입찰명 = bid_info.get('입찰명', ''); 발주처 = bid_info.get('발주처', '')
+        patterns = []
+        for label in ["업 체 명 :", "업체명 :", "회사명 :", "업체명:"]:
+            patterns.append(("업체명", label, f"{label} {업체명}"))
+        for label in ["대 표 자 :", "대표자 :", "대표이사 :"]:
+            patterns.append(("대표자", label, f"{label} {대표자}"))
+        for label in ["주    소 :", "주소 :", "소재지 :"]:
+            patterns.append(("주소", label, f"{label} {주소}"))
+        for label in ["사업자등록번호 :", "사업자번호 :"]:
+            patterns.append(("사업자번호", label, f"{label} {사번}"))
+        for label in ["전화번호 :", "전 화 번 호 :", "전화 :"]:
+            patterns.append(("전화번호", label, f"{label} {전화}"))
+        for label in ["FAX :", "팩스 :"]:
+            patterns.append(("FAX", label, f"{label} {팩스}"))
+        for label in ["자본금 :"]:
+            patterns.append(("자본금", label, f"{label} {자본금}"))
+        for label in ["전년도매출액 :", "매출액 :"]:
+            patterns.append(("매출액", label, f"{label} {매출액}"))
+        for label in ["설립일 :", "설 립 일 :"]:
+            patterns.append(("설립일", label, f"{label} {설립일}"))
+        patterns.append(("소속", "소속 :", f"소속 : {업체명}"))
+        patterns.append(("직위", "직위 :", f"직위 : 대표이사"))
+        patterns.append(("성명", "성명 :", f"성명 : {대표자}"))
+        if 입찰명:
+            for label in ["용역명 :", "사업명 :", "계약건명 :"]:
+                patterns.append(("입찰명", label, f"{label} {입찰명}"))
+        if 발주처:
+            for label in ["발주처 :", "발주기관명 :"]:
+                patterns.append(("발주처", label, f"{label} {발주처}"))
+        return patterns
 
 def run_autofill(form_path, output_name, bid_info, demo_mode=False):
     global status
     status = {"running": True, "progress": 0, "total": 0, "current_task": "준비 중...", "log": [], "result": None}
     try:
         db = load_json(MASTER_DB)
-        info = db["회사정보"]
+        info = db.get("회사정보", {})
+        # 확장 정보 로드 (인력/면허/실적/추가정보/연혁/강점/일반데이터)
+        extended = {
+            '인력': db.get('인력_전체', []),
+            '면허': db.get('면허_허가_등록증', []),
+            '실적': db.get('사업수행실적', []),
+            '추가정보': db.get('추가정보', {}),
+            '연혁': db.get('연혁', []),
+            '강점': db.get('강점', []),
+            '일반데이터': db.get('일반데이터', {})
+        }
         out_dir = SCRIPT_DIR
         output_hwp = os.path.join(out_dir, f"{output_name}.hwp")
         output_pdf = os.path.join(out_dir, f"{output_name}.pdf")
@@ -304,7 +316,7 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
         status["log"].append("📂 파일 열기")
         hwp.Open(output_hwp, "HWP", "forceopen:true")
         if demo_mode: time.sleep(2)
-        patterns = build_patterns(info, bid_info)
+        patterns = build_patterns(info, bid_info, extended)
         year = str(datetime.now().year)
         제출일 = bid_info.get('제출일', f"{year}년  {datetime.now().month}월  {datetime.now().day}일")
         date_patterns = [

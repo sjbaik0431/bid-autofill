@@ -207,7 +207,7 @@
         </div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="btnRun" onclick="simulateRun()">▶ 자동입력 실행</button>
+        <button class="btn btn-primary" id="btnRun" onclick="runAutofill()">▶ 자동입력 실행</button>
         <button class="btn btn-secondary" onclick="saveAll()">💾 설정 저장</button>
       </div>
     </div>
@@ -978,7 +978,200 @@ function saveAll() {
   saveStore(store); showToast('✅ 설정이 저장되었습니다');
 }
 
-// ── 데모 실행 시뮬레이션 ──
+// ═══════════════════════════════════════════════════════════
+// 메인 자동입력: 백엔드 감지 후 실제 /api/run 또는 데모 실행
+// ═══════════════════════════════════════════════════════════
+let _backendAvailable = null;  // 백엔드 존재 여부 캐시
+
+async function checkBackend() {
+  if (_backendAvailable !== null) return _backendAvailable;
+  try {
+    const res = await fetch('/api/status', {method: 'GET', cache: 'no-store'});
+    _backendAvailable = res.ok;
+  } catch(e) {
+    _backendAvailable = false;
+  }
+  return _backendAvailable;
+}
+
+async function runAutofill() {
+  const fp = document.getElementById('formPath').value.trim();
+  if (!fp) { alert('양식 파일을 선택해주세요.'); return; }
+
+  // 백엔드 있으면 실제 실행, 없으면 데모
+  const hasBackend = await checkBackend();
+  if (hasBackend) {
+    return await runAutofillReal(fp);
+  }
+  showToast('⚠ 백엔드 미탐지 - 데모 모드로 실행합니다', true);
+  return await simulateRun();
+}
+
+// ── 실제 백엔드 실행 (dashboard.py) ──
+async function runAutofillReal(formPath) {
+  const store = loadStore();
+  const cdata = getCurrentCompanyData(store);
+  const outputName = document.getElementById('outputName').value || '자동입력완료';
+  const demoMode = document.getElementById('demoMode')?.checked || false;
+
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('progressArea').classList.add('show');
+  document.getElementById('resultCard').classList.remove('show');
+  const logBox = document.getElementById('logBox');
+  logBox.innerHTML = '';
+  document.getElementById('progressPercent').textContent = '0%';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('progressText').textContent = '실행 요청 중...';
+
+  // 회사정보 + 입찰정보 백엔드에 업로드 (저장)
+  try {
+    await fetch('/api/company', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        회사정보: cdata['회사정보'] || {},
+        인력_전체: cdata['인력_전체'] || [],
+        면허_허가_등록증: cdata['면허_허가_등록증'] || [],
+        사업수행실적: cdata['사업수행실적'] || [],
+        추가정보: cdata['추가정보'] || {},
+        연혁: cdata['연혁'] || [],
+        강점: cdata['강점'] || [],
+        일반데이터: cdata['일반데이터'] || {}
+      })
+    });
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        입찰명: document.getElementById('bidName').value,
+        발주처: document.getElementById('bidOrg').value,
+        제출일: document.getElementById('bidDate').value
+      })
+    });
+  } catch(e) {
+    console.warn('회사정보/입찰정보 저장 실패:', e);
+  }
+
+  // 양식 파일 경로 해석: 등록된 양식이면 양식 폴더 + 파일명
+  let realFormPath = formPath;
+  if (!/^[A-Z]:[\\\/]/i.test(formPath)) {
+    // 절대경로가 아니면 양식 폴더 기준으로 해석
+    realFormPath = `${await getFormsDir() || 'C:\\tmp\\bid-autofill\\양식'}\\${formPath}`;
+  }
+
+  // 실행 요청
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        form_path: realFormPath,
+        output_name: outputName,
+        bid_info: {
+          입찰명: document.getElementById('bidName').value,
+          발주처: document.getElementById('bidOrg').value,
+          제출일: document.getElementById('bidDate').value
+        },
+        demo_mode: demoMode
+      })
+    });
+    const json = await res.json();
+    if (json.error) {
+      logBox.innerHTML += `<div class="log-line" style="color:#f87171">❌ ${json.error}</div>`;
+      document.getElementById('progressText').textContent = '오류 발생';
+      document.getElementById('btnRun').disabled = false;
+      return;
+    }
+  } catch(e) {
+    logBox.innerHTML += `<div class="log-line" style="color:#f87171">❌ 실행 요청 실패: ${e.message}</div>`;
+    document.getElementById('btnRun').disabled = false;
+    return;
+  }
+
+  // 진행 상태 폴링
+  const startTime = Date.now();
+  let lastLogLen = 0;
+  const pollInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/status', {cache: 'no-store'});
+      const st = await res.json();
+      // 진행률 업데이트
+      const pct = st.total > 0 ? Math.round(st.progress / st.total * 100) : 0;
+      document.getElementById('progressPercent').textContent = pct + '%';
+      document.getElementById('progressBar').style.width = pct + '%';
+      document.getElementById('progressText').textContent = st.current_task || '처리 중...';
+      // 로그 증분 추가
+      if (st.log && st.log.length > lastLogLen) {
+        for (let i = lastLogLen; i < st.log.length; i++) {
+          const line = st.log[i];
+          const cls = line.includes('✅') || line.includes('✓') ? 'success' :
+                      line.includes('❌') || line.includes('실패') ? 'error' : '';
+          logBox.innerHTML += `<div class="log-line ${cls}">${line}</div>`;
+        }
+        logBox.scrollTop = logBox.scrollHeight;
+        lastLogLen = st.log.length;
+      }
+      // 완료 감지
+      if (!st.running && st.result) {
+        clearInterval(pollInterval);
+        document.getElementById('btnRun').disabled = false;
+        const rc = document.getElementById('resultCard');
+        rc.classList.add('show');
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        if (st.result.success) {
+          document.getElementById('resultTitle').textContent = `✅ 자동입력 완료! (${elapsed}초 소요)`;
+          const hwpPath = st.result.hwp_path || '';
+          const pdfPath = st.result.pdf_path || '';
+          document.getElementById('resultFiles').innerHTML = `
+            <div style="margin:8px 0;">📄 HWP: <code>${hwpPath}</code> <button class="btn btn-sm btn-secondary" onclick="openFile('${hwpPath.replace(/\\/g,'\\\\')}')">열기</button></div>
+            ${pdfPath ? `<div style="margin:8px 0;">📑 PDF: <code>${pdfPath}</code> <button class="btn btn-sm btn-secondary" onclick="openFile('${pdfPath.replace(/\\/g,'\\\\')}')">열기</button></div>` : ''}
+            <div style="margin:8px 0;"><button class="btn btn-secondary btn-sm" onclick="openFolder()">📁 폴더 열기</button></div>
+          `;
+          // 이력 추가
+          const ls = loadStore();
+          const now = new Date();
+          ls.histories.unshift({
+            time: now.toISOString().slice(0,16).replace('T',' '),
+            bid: document.getElementById('bidName').value,
+            count: st.result.count || st.progress || 0
+          });
+          saveStore(ls); renderHistory();
+        } else {
+          document.getElementById('resultTitle').textContent = `❌ 자동입력 실패`;
+          document.getElementById('resultFiles').innerHTML = `<div style="color:#f87171">${st.result.error || '알 수 없는 오류'}</div>`;
+        }
+      }
+    } catch(e) {
+      console.warn('상태 폴링 실패:', e);
+    }
+  }, 500);
+}
+
+async function getFormsDir() {
+  try {
+    const res = await fetch('/api/forms', {cache: 'no-store'});
+    const json = await res.json();
+    return json.dir || null;
+  } catch { return null; }
+}
+
+async function openFile(path) {
+  try {
+    await fetch('/api/open-file', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path})
+    });
+  } catch(e) { showToast('파일 열기 실패: ' + e.message, true); }
+}
+
+async function openFolder() {
+  try {
+    await fetch('/api/open-folder', {method: 'POST'});
+  } catch(e) { showToast('폴더 열기 실패: ' + e.message, true); }
+}
+
+// ── 데모 실행 시뮬레이션 (백엔드 없을 때 폴백) ──
 async function simulateRun() {
   const fp=document.getElementById('formPath').value.trim();
   if(!fp){alert('양식 파일을 선택해주세요.');return;}
