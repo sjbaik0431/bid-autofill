@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>입찰 자동입력 대시보드 사용설명서</title>
+<style>
+@page { size: A4; margin: 15mm; }
+body {
+  font-family: 'Pretendard', 'Malgun Gothic', '맑은 고딕', sans-serif;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  color: #1a1a1a;
+  line-height: 1.5;
+  background: #f8f9fa;
+}
+h1 {
+  color: #1e40af;
+  border-bottom: 3px solid #1e40af;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+.subtitle { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
+h2 {
+  background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 16px;
+  margin-top: 24px;
+}
+.box {
+  background: white;
+  border-left: 4px solid #3b82f6;
+  padding: 12px 16px;
+  margin: 12px 0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.box.warn { border-left-color: #f59e0b; background: #fffbeb; }
+.box.danger { border-left-color: #ef4444; background: #fef2f2; }
+.box.success { border-left-color: #10b981; background: #f0fdf4; }
+ol { padding-left: 22px; }
+ol li { margin-bottom: 8px; }
+.step {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.step-num {
+  display: inline-block;
+  background: #1e40af;
+  color: white;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 24px;
+  font-weight: bold;
+  margin-right: 8px;
+  font-size: 13px;
+}
+code {
+  background: #1f2937;
+  color: #fbbf24;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+}
+.shortcut {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { border: 1px solid #d1d5db; padding: 6px 10px; font-size: 13px; text-align: left; }
+th { background: #f3f4f6; font-weight: 600; }
+.footer {
+  text-align: center;
+  margin-top: 30px;
+  padding-top: 15px;
+  border-top: 1px solid #d1d5db;
+  color: #6b7280;
+  font-size: 11px;
+}
+@media print {
+  body { background: white; padding: 0; }
+  .no-print { display: none; }
+}
+</style>
+</head>
+<body>
+
+<h1>📋 입찰 정량평가 자동입력 대시보드</h1>
+<div class="subtitle">사용설명서 v1.0 · 2026년 4월</div>
+
+<!-- ───────────── 최초 설치 ───────────── -->
+<h2>🔧 최초 설치 (PC당 1회만)</h2>
+
+<div class="step">
+  <span class="step-num">1</span><strong>Python 설치 확인</strong><br>
+  이미 설치되어 있다면 생략. 없다면 <a href="https://www.python.org/downloads/">python.org</a>에서 다운로드 → 설치 시 <strong>"Add Python to PATH" 반드시 체크</strong>
+</div>
+
+<div class="step">
+  <span class="step-num">2</span><strong>한컴오피스 설치 확인</strong><br>
+  한/글 프로그램이 있어야 자동입력이 작동합니다. 미설치 시 설치 필요.
+</div>
+
+<div class="step">
+  <span class="step-num">3</span><strong>바탕화면 바로가기 생성</strong><br>
+  프로그램 폴더에서 <code>바탕화면 바로가기 만들기.bat</code> 더블클릭 → 바탕화면에 <span class="shortcut">📄 입찰 자동입력</span> 아이콘 생성됨
+</div>
+
+<!-- ───────────── 매일 사용법 ───────────── -->
+<h2>▶️ 매일 사용법 (3단계)</h2>
+
+<div class="step">
+  <span class="step-num">1</span><strong>바탕화면 아이콘 더블클릭</strong><br>
+  <span class="shortcut">📄 입찰 자동입력</span> 아이콘 클릭 → 검은 창이 뜨고 브라우저가 자동으로 열림 (http://localhost:5000)
+</div>
+
+<div class="step">
+  <span class="step-num">2</span><strong>정보 입력 & 실행</strong><br>
+  ① 입찰명, 발주처, 제출일 입력<br>
+  ② 양식 파일 선택 (등록된 양식 또는 새 HWP 업로드)<br>
+  ③ <strong>[▶ 자동입력 실행]</strong> 버튼 클릭<br>
+  ④ 한글 프로그램이 자동으로 열리고 양식이 채워짐 (약 30초~2분 소요)
+</div>
+
+<div class="step">
+  <span class="step-num">3</span><strong>결과 확인 및 종료</strong><br>
+  완성된 <code>.hwp</code> 및 <code>.pdf</code> 파일 생성 확인 → 검은 창에서 <strong>Ctrl+C</strong>로 종료
+</div>
+
+<!-- ───────────── 탭 안내 ───────────── -->
+<h2>📑 대시보드 탭 기능</h2>
+
+<table>
+  <tr><th width="140">탭</th><th>용도</th></tr>
+  <tr><td>🚀 자동입력 실행</td><td>입찰명·발주처·제출일 입력 후 양식 자동채움 실행</td></tr>
+  <tr><td>🏢 회사정보 관리</td><td>회사 기본정보(업체명·대표자·주소 등) 확인 및 HWP에서 자동추출</td></tr>
+  <tr><td>📁 양식 관리</td><td>자주 쓰는 빈 양식 HWP 파일 업로드·삭제·관리</td></tr>
+  <tr><td>📋 실행 이력</td><td>과거 자동입력 실행 기록 확인</td></tr>
+</table>
+
+<!-- ───────────── 주의사항 ───────────── -->
+<h2>⚠️ 주의사항</h2>
+
+<div class="box danger">
+  <strong>개인정보 보호</strong><br>
+  회사정보 HWP 파일에는 대표자 주민번호·전화번호 등이 포함될 수 있습니다.
+  외부 PC나 공유 폴더에 올리지 마세요.
+</div>
+
+<div class="box warn">
+  <strong>한글 프로그램 중복 실행 금지</strong><br>
+  자동입력 중에는 한글 프로그램을 직접 조작하지 마세요.
+  이미 한글이 열려 있으면 미리 닫고 실행하는 것이 안전합니다.
+</div>
+
+<div class="box success">
+  <strong>양식이 새로 바뀌면?</strong><br>
+  📁 양식 관리 탭에서 새 HWP 업로드 → 자동입력 실행 시 선택.
+  라벨(예: "업체명 :")이 다르면 개발자에게 문의하여 패턴을 추가할 수 있습니다.
+</div>
+
+<!-- ───────────── 문제 해결 ───────────── -->
+<h2>🔍 자주 묻는 문제</h2>
+
+<table>
+  <tr><th width="180">증상</th><th>해결 방법</th></tr>
+  <tr><td>검은 창만 뜨고 브라우저가 안 열림</td><td>브라우저에서 직접 <code>http://localhost:5000</code> 접속</td></tr>
+  <tr><td>"포트 5000 사용 중" 메시지</td><td>대시보드가 이미 실행 중. 기존 창 확인</td></tr>
+  <tr><td>한컴오피스가 안 열림</td><td>한글 2020 이상 필요. 관리자 권한으로 .bat 재실행</td></tr>
+  <tr><td>"Python이 없습니다" 오류</td><td>python.org에서 Python 3.10+ 설치 (PATH 체크 필수)</td></tr>
+  <tr><td>패턴이 제대로 안 채워짐</td><td>회사정보 탭에서 HWP 재추출 → 실행</td></tr>
+</table>
+
+<!-- ───────────── 파일 위치 ───────────── -->
+<h2>📂 주요 파일 위치</h2>
+
+<table>
+  <tr><th width="260">파일/폴더</th><th>용도</th></tr>
+  <tr><td><code>대시보드 실행.bat</code></td><td>대시보드 메인 실행 파일</td></tr>
+  <tr><td><code>바탕화면 바로가기 만들기.bat</code></td><td>최초 1회 실행</td></tr>
+  <tr><td><code>dashboard.py</code></td><td>핵심 엔진 (수정 금지)</td></tr>
+  <tr><td><code>양식/</code> 폴더</td><td>빈 양식 HWP 저장소</td></tr>
+  <tr><td><code>회사정보/</code> 폴더</td><td>회사정보 HWP 저장소</td></tr>
+  <tr><td><code>company_master.json</code></td><td>회사정보 DB (자동 생성)</td></tr>
+  <tr><td><code>정량적평가-자동입력완료.hwp/.pdf</code></td><td>최종 결과물 (매번 덮어씀)</td></tr>
+</table>
+
+<div class="footer">
+  조아호텔 운영팀 · 문의 010-3404-5955 · bsj0431@gmail.com<br>
+  GitHub: <a href="https://github.com/sjbaik0431/bid-autofill">sjbaik0431/bid-autofill</a>
+  · Live: <a href="https://sjbaik0431.github.io/bid-autofill/">sjbaik0431.github.io/bid-autofill</a>
+</div>
+
+<div class="no-print" style="margin-top:20px;text-align:center;">
+  <button onclick="window.print()" style="padding:8px 20px;background:#1e40af;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+    🖨️ 인쇄하기 (A4 1장)
+  </button>
+</div>
+
+</body>
+</html>
