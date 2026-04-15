@@ -361,20 +361,30 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
 #   API 라우트
 # ══════════════════════════════════════
 
+from flask import make_response
+
 @app.route('/')
 def index():
     """
     외부 index.html 우선 로드 (소스 단일화).
     파일이 없으면 내장 HTML_PAGE로 폴백.
+    브라우저 캐시를 방지하기 위한 헤더 설정 포함.
     """
     ext_html = os.path.join(SCRIPT_DIR, 'index.html')
+    html_content = HTML_PAGE
     if os.path.exists(ext_html):
         try:
             with open(ext_html, 'r', encoding='utf-8') as f:
-                return f.read()
+                html_content = f.read()
         except Exception as e:
             print(f"[경고] index.html 읽기 실패, 내장 페이지 사용: {e}")
-    return HTML_PAGE
+
+    resp = make_response(html_content)
+    # 브라우저 캐시 방지 (코드 업데이트 시 즉시 반영되도록)
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 # ── 회사정보 API ──
 @app.route('/api/company', methods=['GET'])
@@ -1129,6 +1139,30 @@ loadData();
 </html>
 '''
 
+def kill_process_on_port(port):
+    """지정 포트를 점유 중인 프로세스를 종료 (기존 대시보드 잔존 방지)"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['netstat', '-ano'], capture_output=True, text=True, encoding='cp949', errors='ignore'
+        )
+        pids_to_kill = set()
+        for line in result.stdout.splitlines():
+            if f':{port} ' in line and 'LISTENING' in line:
+                parts = line.split()
+                if parts:
+                    pid = parts[-1]
+                    if pid.isdigit() and pid != str(os.getpid()):
+                        pids_to_kill.add(pid)
+        for pid in pids_to_kill:
+            print(f"  → 기존 대시보드 프로세스 종료 (PID {pid})")
+            subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True)
+        return len(pids_to_kill) > 0
+    except Exception as e:
+        print(f"  [경고] 포트 정리 실패: {e}")
+        return False
+
+
 if __name__ == "__main__":
     import webbrowser
     port = 5000
@@ -1136,7 +1170,22 @@ if __name__ == "__main__":
     print(f"  입찰 정량평가 자동입력 대시보드 v4")
     print(f"  http://localhost:{port}")
     print(f"{'='*50}")
+
+    # 기존 대시보드 프로세스가 실행 중이면 종료 (옛 코드 잔존 방지)
+    if kill_process_on_port(port):
+        print(f"  구버전 대시보드를 종료하고 최신 코드로 재시작합니다.")
+        time.sleep(1)
+
+    # 외부 index.html 존재 여부 표시 (디버깅 도움)
+    ext_html = os.path.join(SCRIPT_DIR, 'index.html')
+    if os.path.exists(ext_html):
+        size_kb = os.path.getsize(ext_html) // 1024
+        print(f"  [OK] 외부 index.html 사용 ({size_kb} KB)")
+    else:
+        print(f"  [WARN] 내장 HTML 사용 (index.html 없음)")
+
     print(f"\n  브라우저에서 자동으로 열립니다...")
     print(f"  종료: Ctrl+C\n")
     webbrowser.open(f"http://localhost:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # debug=False 유지 (리로더 이중실행 방지), 하지만 서버 시작 로그는 표시
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
