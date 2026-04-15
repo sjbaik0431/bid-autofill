@@ -43,63 +43,186 @@ def save_json(path, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ── HWP 텍스트 추출 (olefile + zlib) ──
+# ── HWP 텍스트 추출 (olefile + zlib, record-level parsing) ──
 def extract_hwp_text(hwp_path):
-    """HWP 파일에서 텍스트 추출 (olefile 방식)"""
-    import olefile, zlib
+    """HWP 파일에서 텍스트 추출 - HWP record 구조를 파싱하여 PARA_TEXT만 추출"""
+    import olefile, zlib, struct
     text_parts = []
     try:
         if not os.path.exists(hwp_path):
             return f"[추출 오류: 파일이 존재하지 않습니다 - {hwp_path}]"
         ole = olefile.OleFileIO(hwp_path)
         streams = ole.listdir()
-        body_streams = ["/".join(s) for s in streams if "/".join(s).startswith("BodyText/")]
+        body_streams = sorted(["/".join(s) for s in streams if s[0] == "BodyText"])
         if not body_streams:
             ole.close()
             return "[추출 오류: HWP 파일에 BodyText 스트림이 없습니다. 올바른 HWP 파일인지 확인하세요.]"
-        for stream in streams:
-            path = "/".join(stream)
-            if path.startswith("BodyText/"):
-                data = ole.openstream(stream).read()
+        for stream_path in body_streams:
+            data = ole.openstream(stream_path).read()
+            try:
+                data = zlib.decompress(data, -15)
+            except:
                 try:
-                    decompressed = zlib.decompress(data, -15)
+                    data = zlib.decompress(data)
                 except:
-                    try:
-                        decompressed = zlib.decompress(data)
-                    except:
-                        decompressed = data
-                raw = decompressed.decode('utf-16le', errors='ignore')
-                cleaned = ''.join(c for c in raw if c.isprintable() or c in '\n\r\t')
-                cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', cleaned)
-                text_parts.append(cleaned)
+                    pass  # use raw data
+            # Parse HWP record structure to find PARA_TEXT (tag 0x0043) records
+            offset = 0
+            while offset + 4 <= len(data):
+                header_val = struct.unpack_from('<I', data, offset)[0]
+                tag_id = header_val & 0x3FF
+                size = (header_val >> 20) & 0xFFF
+                offset += 4
+                if size == 0xFFF:
+                    if offset + 4 > len(data):
+                        break
+                    size = struct.unpack_from('<I', data, offset)[0]
+                    offset += 4
+                if offset + size > len(data):
+                    break
+                if tag_id == 0x0043:  # HWPTAG_PARA_TEXT
+                    rec = data[offset:offset + size]
+                    text_parts.append(_extract_para_text(rec))
+                offset += size
         ole.close()
     except Exception as e:
         return f"[추출 오류: {type(e).__name__} - {e}]"
     return "\n".join(text_parts)
 
+def _extract_para_text(rec):
+    """PARA_TEXT 레코드에서 텍스트 추출 (HWP 제어코드 필터링)"""
+    import struct
+    pos = 0
+    chars = []
+    while pos + 1 < len(rec):
+        cc = struct.unpack_from('<H', rec, pos)[0]
+        if cc == 0x0000:
+            pos += 2
+        elif cc <= 0x0002:
+            # Inline control chars: 2 + 14 = 16 bytes
+            pos += 16
+        elif 0x0003 <= cc <= 0x0008 or 0x000B <= cc <= 0x000C or 0x000E <= cc <= 0x001F:
+            # Extended control chars: 2 + 14 = 16 bytes
+            pos += 16
+        elif cc == 0x0009:
+            chars.append('\t')
+            pos += 2
+        elif cc == 0x000A:
+            chars.append('\n')
+            pos += 2
+        elif cc == 0x000D:
+            chars.append('\n')
+            pos += 2
+        else:
+            # Normal char - filter HWP internal fill codes
+            if not (cc == 0x0100 or 0x0E00 <= cc <= 0x0FFF):
+                chars.append(chr(cc))
+            pos += 2
+    return "".join(chars).strip()
+
 def parse_company_info_from_text(text):
-    """추출된 텍스트에서 회사정보 파싱"""
+    """추출된 텍스트에서 회사정보 파싱 - 같은줄/다음줄(표) 형식 모두 지원"""
     info = {}
-    patterns = {
+    lines = [l.strip() for l in text.split('\n')]
+
+    # ── 1단계: "라벨 : 값" 같은줄 패턴 (값이 있는 것만) ──
+    same_line = {
         '업체명': [r'업\s*체\s*명\s*[:：]\s*(.+)', r'회\s*사\s*명\s*[:：]\s*(.+)', r'상\s*호\s*[:：]\s*(.+)'],
         '대표자': [r'대\s*표\s*자\s*[:：]\s*(.+)', r'대\s*표\s*이\s*사\s*[:：]\s*(.+)'],
-        '사업자번호': [r'사업자\s*등록\s*번호\s*[:：]\s*([\d\-]+)', r'사\s*업\s*자\s*번\s*호\s*[:：]\s*([\d\-]+)'],
+        '사업자번호': [r'사\s*업\s*자\s*등?\s*록?\s*번\s*호\s*[:：]\s*(.+)'],
         '주소': [r'주\s*소\s*[:：]\s*(.+)', r'소\s*재\s*지\s*[:：]\s*(.+)'],
-        '전화번호': [r'전\s*화\s*번\s*호\s*[:：]\s*([\d\-]+)', r'TEL\s*[:：]\s*([\d\-]+)'],
-        'FAX': [r'FAX\s*[:：]\s*([\d\-]+)', r'팩\s*스\s*[:：]\s*([\d\-]+)'],
-        '설립일': [r'설\s*립\s*일\s*[:：]\s*(.+)', r'설\s*립\s*년\s*도\s*[:：]\s*(.+)'],
+        '전화번호': [r'전\s*화\s*번?\s*호?\s*[:：]\s*(.+)', r'TEL\s*[:：]\s*(.+)'],
+        'FAX': [r'FAX\s*[:：]\s*(.+)', r'팩\s*스\s*[:：]\s*(.+)'],
+        '설립일': [r'설\s*립\s*일\s*[:：]\s*(.+)'],
         '자본금': [r'자\s*본\s*금\s*[:：]\s*(.+)'],
-        '전년도매출액': [r'매\s*출\s*액\s*[:：]\s*(.+)', r'전년도\s*매출액\s*[:：]\s*(.+)'],
+        '전년도매출액': [r'전\s*년\s*도?\s*매\s*출\s*액?\s*[:：]\s*(.+)', r'매\s*출\s*액\s*[:：]\s*(.+)'],
     }
-    for key, pats in patterns.items():
+    for key, pats in same_line.items():
         for pat in pats:
-            m = re.search(pat, text)
+            for line in lines:
+                m = re.match(pat, line)
+                if m:
+                    val = m.group(1).strip()
+                    # (인), (서명) 등 불필요 접미어 제거
+                    val = re.sub(r'\s*[\(（]인[\)）]\s*$', '', val).strip()
+                    val = re.sub(r'\s*[\(（]서명[\)）]\s*$', '', val).strip()
+                    val = re.split(r'\s{3,}|\t', val)[0].strip()
+                    if val and len(val) > 0 and len(val) < 150:
+                        info[key] = val
+                        break
+            if key in info:
+                break
+
+    # ── 2단계: 표 형식 (라벨이 한 줄, 값이 다음 줄) ── 서식 제12호 등
+    next_line = {
+        '업체명': [r'^업\s*체\s*명$', r'^회\s*사\s*명$', r'^상\s*호$'],
+        '대표자': [r'^대\s*표\s*자$', r'^대\s*표\s*이\s*사$'],
+        '사업자번호': [r'^사\s*업\s*자\s*번\s*호$', r'^사\s*업\s*자\s*등\s*록\s*번\s*호$'],
+        '주소': [r'^주\s*소$', r'^소\s*재\s*지$'],
+        '전화번호': [r'^전\s*화\s*번?\s*호?$', r'^TEL$'],
+        'FAX': [r'^FAX$', r'^팩\s*스$'],
+        '설립일': [r'^설\s*립\s*일$', r'^설\s*립\s*년\s*도$'],
+        '자본금': [r'^자\s*본\s*금$', r'^납\s*입\s*자\s*본\s*금$'],
+        '전년도매출액': [r'^전\s*년\s*도?\s*매\s*출\s*액?$', r'^매\s*출\s*액$'],
+    }
+    # 라벨형 placeholder 패턴 (다음 줄에 값이 아니라 플레이스홀더가 있는 경우)
+    placeholder_pat = re.compile(r'^[\(（][가-힣\s]+[\)）]$')
+
+    for key, pats in next_line.items():
+        if key in info:
+            continue  # 이미 1단계에서 추출됨
+        for pat in pats:
+            for i, line in enumerate(lines):
+                if re.match(pat, line, re.IGNORECASE) and i + 1 < len(lines):
+                    val = lines[i + 1].strip()
+                    # 다음 줄이 다른 라벨이거나 비어있으면 스킵
+                    if not val or re.match(r'^[가-힣\s]{2,}[:：]', val) or len(val) > 150:
+                        continue
+                    # (휴대폰번호), (연락처) 등 placeholder 스킵 - 실제 값이 아님
+                    if placeholder_pat.match(val):
+                        continue
+                    # 전화번호 특수 검증: 숫자/하이픈 포함 여부 확인
+                    if key in ('전화번호', 'FAX') and not re.search(r'\d', val):
+                        continue
+                    # 사업자번호 검증: 숫자-숫자-숫자 형식이어야 함
+                    if key == '사업자번호' and not re.search(r'\d{3}-\d{2}-\d{5}', val):
+                        continue
+                    # (인), (서명) 제거
+                    val = re.sub(r'\s*[\(（]인[\)）]\s*$', '', val).strip()
+                    val = re.sub(r'\s*[\(（]서명[\)）]\s*$', '', val).strip()
+                    # 다중 공백을 단일 공백으로 정규화 (예: "2013년    9월    3일")
+                    val = re.sub(r'\s+', ' ', val).strip()
+                    if val and len(val) > 0:
+                        info[key] = val
+                        break
+            if key in info:
+                break
+
+    # ── 3단계: 사업자번호 특수 패턴 (숫자-숫자-숫자) ──
+    if '사업자번호' not in info:
+        for line in lines:
+            m = re.search(r'(\d{3}-\d{2}-\d{5})', line)
             if m:
-                val = m.group(1).strip()
-                val = re.split(r'\s{3,}|\t', val)[0].strip()
-                if val and len(val) < 100:
-                    info[key] = val
-                    break
+                info['사업자번호'] = m.group(1)
+                break
+
+    # ── 4단계: 인력현황, 설립일 등 보조 추출 ──
+    if '설립일' not in info:
+        for line in lines:
+            m = re.search(r'설\s*립\s*일\s*[:：]?\s*(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)', line)
+            if m:
+                info['설립일'] = m.group(1).strip()
+                break
+        # 표 형식에서 다음 줄 확인
+        if '설립일' not in info:
+            for i, line in enumerate(lines):
+                if re.match(r'^설\s*립\s*일$', line) and i + 1 < len(lines):
+                    val = lines[i + 1].strip()
+                    m2 = re.search(r'(\d{4}년.*)', val)
+                    if m2:
+                        info['설립일'] = m2.group(1).strip()
+                        break
+
     return info
 
 # ── 한컴 COM 찾아바꾸기 ──

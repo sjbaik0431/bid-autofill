@@ -79,7 +79,9 @@ def build_patterns(info, bid_info):
 
     # ── 주소 ──
     for label in ["주    소 :", "주  소 :", "주소 :", "주소:",
-                   "소 재 지 :", "소재지 :", "본사주소 :"]:
+                   "소 재 지 :", "소재지 :", "본사주소 :",
+                   "주사무소소재지 :", "주 사 무 소 소 재 지 :",
+                   "회사 :", "회사:"]:
         patterns.append(("주소", label, f"{label} {주소}"))
 
     # ── 사업자등록번호 ──
@@ -89,7 +91,7 @@ def build_patterns(info, bid_info):
 
     # ── 전화번호 ──
     for label in ["전화번호 :", "전화번호:", "전 화 번 호 :", "T E L :",
-                   "TEL :", "전화 :", "연락처 :"]:
+                   "TEL :", "전화 :", "연락처 :", "문의처 :", "담당자연락처 :"]:
         patterns.append(("전화번호", label, f"{label} {전화}"))
 
     # ── FAX ──
@@ -115,11 +117,13 @@ def build_patterns(info, bid_info):
 
     # ── 입찰명/발주처 (있으면 치환) ──
     if 입찰명:
-        patterns.append(("입찰명", "용역명 :", f"용역명 : {입찰명}"))
-        patterns.append(("입찰명", "사업명 :", f"사업명 : {입찰명}"))
+        for label in ["용역명 :", "사업명 :", "계약건명 :", "입찰명 :",
+                      "과 업 명 :", "과업명 :"]:
+            patterns.append(("입찰명", label, f"{label} {입찰명}"))
     if 발주처:
-        patterns.append(("발주처", "발주처 :", f"발주처 : {발주처}"))
-        patterns.append(("발주처", "발주기관 :", f"발주기관 : {발주처}"))
+        for label in ["발주처 :", "발주기관 :", "발주기관명 :",
+                      "발 주 처 :", "발 주 기 관 :", "계약상대자 :"]:
+            patterns.append(("발주처", label, f"{label} {발주처}"))
 
     # ──────────────────────────────────────────
     # ★ 새 양식에서 매칭 안 되는 라벨이 있으면 여기에 추가 ★

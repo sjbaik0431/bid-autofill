@@ -485,67 +485,40 @@ async function extractHwpCompanyInfo(input) {
     const cfb = CFB.read(data, {type: 'array'});
     let allText = '';
 
-    // BodyText 스트림 찾기 & 해제
+    // BodyText 스트림 찾기
     const entries = CFB.utils.cfb_dir(cfb);
-    for (const entry of entries) {
-      if (entry && entry.indexOf('BodyText') !== -1) {
-        try {
-          const stream = CFB.find(cfb, entry);
-          if (!stream || !stream.content || stream.content.length === 0) continue;
-          const raw = stream.content;
-          // HWP BodyText는 zlib raw deflate로 압축
-          let decompressed;
-          try {
-            decompressed = pako.inflateRaw(raw);
-          } catch(e1) {
-            try { decompressed = pako.inflate(raw); } catch(e2) {
-              // 압축 안 된 경우 그대로 사용
-              decompressed = raw;
-            }
-          }
-          // UTF-16LE 디코딩
-          const u16arr = new Uint16Array(decompressed.buffer, decompressed.byteOffset, Math.floor(decompressed.byteLength / 2));
-          let text = '';
-          for (let i = 0; i < u16arr.length; i++) {
-            const c = u16arr[i];
-            if (c >= 32 && c < 0xFFFE) {
-              text += String.fromCharCode(c);
-            } else if (c === 13 || c === 10) {
-              text += '\n';
-            }
-          }
-          allText += text + '\n';
-        } catch(streamErr) {
-          console.warn('스트림 처리 실패:', entry, streamErr);
-        }
-      }
-    }
+    const bodyEntries = entries.filter(e => e && e.indexOf('BodyText') !== -1).sort();
 
-    if (!allText.trim()) {
-      // FileHeader 확인 - 압축 여부 체크
-      let headerEntry = CFB.find(cfb, 'FileHeader');
-      let compressed = true;
-      if (headerEntry && headerEntry.content && headerEntry.content.length >= 40) {
-        const flags = headerEntry.content[36] | (headerEntry.content[37] << 8);
-        compressed = !!(flags & 1);
-      }
-      // 비압축 HWP인 경우 raw 데이터로 시도
-      for (const entry of entries) {
-        if (entry && entry.indexOf('BodyText') !== -1) {
-          try {
-            const stream = CFB.find(cfb, entry);
-            if (!stream || !stream.content) continue;
-            const raw = stream.content;
-            const u16arr = new Uint16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
-            let text = '';
-            for (let i = 0; i < u16arr.length; i++) {
-              const c = u16arr[i];
-              if (c >= 32 && c < 0xFFFE) text += String.fromCharCode(c);
-              else if (c === 13 || c === 10) text += '\n';
-            }
-            allText += text + '\n';
-          } catch(e) {}
+    for (const entry of bodyEntries) {
+      try {
+        const stream = CFB.find(cfb, entry);
+        if (!stream || !stream.content || stream.content.length === 0) continue;
+        let buf = stream.content;
+        // zlib 압축 해제
+        try { buf = pako.inflateRaw(buf); } catch(e1) {
+          try { buf = pako.inflate(buf); } catch(e2) { /* 비압축 */ }
         }
+        // HWP 레코드 구조 파싱 - PARA_TEXT(tag 0x0043)만 추출
+        let off = 0;
+        while (off + 4 <= buf.length) {
+          const hdr = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
+          const tagId = hdr & 0x3FF;
+          let sz = (hdr >>> 20) & 0xFFF;
+          off += 4;
+          if (sz === 0xFFF) {
+            if (off + 4 > buf.length) break;
+            sz = buf[off] | (buf[off+1]<<8) | (buf[off+2]<<16) | (buf[off+3]<<24);
+            off += 4;
+          }
+          if (off + sz > buf.length) break;
+          if (tagId === 0x0043) { // PARA_TEXT
+            const rec = buf.slice(off, off + sz);
+            allText += _extractParaText(rec) + '\n';
+          }
+          off += sz;
+        }
+      } catch(streamErr) {
+        console.warn('스트림 처리 실패:', entry, streamErr);
       }
     }
 
@@ -583,33 +556,49 @@ async function extractHwpCompanyInfo(input) {
   input.value = '';
 }
 
+// PARA_TEXT 레코드에서 HWP 제어코드 필터링하여 텍스트 추출
+function _extractParaText(rec) {
+  let pos = 0, chars = [];
+  while (pos + 1 < rec.length) {
+    const cc = rec[pos] | (rec[pos+1] << 8);
+    if (cc === 0) { pos += 2; }
+    else if (cc <= 2) { pos += 16; } // inline control
+    else if ((cc >= 3 && cc <= 8) || cc === 11 || cc === 12 || (cc >= 14 && cc <= 31)) { pos += 16; } // extended control
+    else if (cc === 9) { chars.push('\t'); pos += 2; }
+    else if (cc === 10 || cc === 13) { chars.push('\n'); pos += 2; }
+    else {
+      if (!(cc === 0x100 || (cc >= 0xE00 && cc <= 0xFFF))) chars.push(String.fromCharCode(cc));
+      pos += 2;
+    }
+  }
+  return chars.join('').trim();
+}
+
 function parseCompanyFromText(text) {
   const result = {};
-  // 공백 변형 패턴 처리 (예: "업 체 명", "업  체  명" 등)
-  const patterns = [
-    {key:'업체명', regexes:[/업\s*체\s*명\s*[:：]\s*(.+)/,/회\s*사\s*명\s*[:：]\s*(.+)/,/상\s*호\s*[:：]\s*(.+)/]},
-    {key:'대표자', regexes:[/대\s*표\s*자\s*[:：]\s*(.+)/,/대\s*표\s*이\s*사\s*[:：]\s*(.+)/,/성\s*명\s*[:：]\s*(.+)/]},
-    {key:'사업자번호', regexes:[/사\s*업\s*자\s*등?\s*록?\s*번\s*호\s*[:：]\s*(.+)/,/사\s*업\s*자\s*번\s*호\s*[:：]\s*(.+)/]},
-    {key:'주소', regexes:[/주\s*소\s*[:：]\s*(.+)/,/소\s*재\s*지\s*[:：]\s*(.+)/,/사\s*업\s*장?\s*소?\s*재?\s*지?\s*[:：]\s*(.+)/]},
-    {key:'전화번호', regexes:[/전\s*화\s*번?\s*호?\s*[:：]\s*(.+)/,/TEL\s*[:：]\s*(.+)/i,/T\s*E\s*L\s*[:：]\s*(.+)/]},
-    {key:'FAX', regexes:[/FAX\s*[:：]\s*(.+)/i,/F\s*A\s*X\s*[:：]\s*(.+)/,/팩\s*스\s*[:：]\s*(.+)/]},
-    {key:'설립일', regexes:[/설\s*립\s*일\s*[:：]\s*(.+)/,/설\s*립\s*년\s*도?\s*[:：]\s*(.+)/]},
-    {key:'자본금', regexes:[/자\s*본\s*금\s*[:：]\s*(.+)/,/납\s*입\s*자\s*본\s*금\s*[:：]\s*(.+)/]},
-    {key:'전년도매출액', regexes:[/전\s*년\s*도?\s*매\s*출\s*액?\s*[:：]\s*(.+)/,/매\s*출\s*액\s*[:：]\s*(.+)/,/연\s*간?\s*매\s*출\s*액?\s*[:：]\s*(.+)/]}
-  ];
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  const lines = text.split('\n');
-  for (const p of patterns) {
+  // ── 1단계: "라벨 : 값" 같은줄 패턴 (값이 있는 것만) ──
+  const sameLinePatterns = [
+    {key:'업체명', regexes:[/^업\s*체\s*명\s*[:：]\s*(.+)/,/^회\s*사\s*명\s*[:：]\s*(.+)/,/^상\s*호\s*[:：]\s*(.+)/]},
+    {key:'대표자', regexes:[/^대\s*표\s*자\s*[:：]\s*(.+)/,/^대\s*표\s*이\s*사\s*[:：]\s*(.+)/]},
+    {key:'사업자번호', regexes:[/^사\s*업\s*자\s*등?\s*록?\s*번\s*호\s*[:：]\s*(.+)/]},
+    {key:'주소', regexes:[/^주\s*소\s*[:：]\s*(.+)/,/^소\s*재\s*지\s*[:：]\s*(.+)/]},
+    {key:'전화번호', regexes:[/^전\s*화\s*번?\s*호?\s*[:：]\s*(.+)/,/^TEL\s*[:：]\s*(.+)/i]},
+    {key:'FAX', regexes:[/^FAX\s*[:：]\s*(.+)/i,/^팩\s*스\s*[:：]\s*(.+)/]},
+    {key:'설립일', regexes:[/^설\s*립\s*일\s*[:：]\s*(.+)/]},
+    {key:'자본금', regexes:[/^자\s*본\s*금\s*[:：]\s*(.+)/]},
+    {key:'전년도매출액', regexes:[/^전\s*년\s*도?\s*매\s*출\s*액?\s*[:：]\s*(.+)/,/^매\s*출\s*액\s*[:：]\s*(.+)/]}
+  ];
+  for (const p of sameLinePatterns) {
     for (const regex of p.regexes) {
       for (const line of lines) {
         const m = line.match(regex);
         if (m) {
           let val = m[1].trim();
-          // 뒤에 오는 잡 제어문자 제거
-          val = val.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
-          // 끝에 오는 불필요 문자 제거
-          val = val.replace(/\s{3,}.*$/, '').trim();
-          if (val && val.length > 0 && val.length < 200) {
+          val = val.replace(/\s*[\(（]인[\)）]\s*$/, '').replace(/\s*[\(（]서명[\)）]\s*$/, '').trim();
+          val = val.split(/\s{3,}|\t/)[0].trim();
+          if (val && val.length > 0 && val.length < 150) {
             result[p.key] = val;
             break;
           }
@@ -618,6 +607,57 @@ function parseCompanyFromText(text) {
       if (result[p.key]) break;
     }
   }
+
+  // ── 2단계: 표 형식 (라벨이 한 줄, 값이 다음 줄) ──
+  const nextLinePatterns = [
+    {key:'업체명', regexes:[/^업\s*체\s*명$/,/^회\s*사\s*명$/]},
+    {key:'대표자', regexes:[/^대\s*표\s*자$/,/^대\s*표\s*이\s*사$/]},
+    {key:'사업자번호', regexes:[/^사\s*업\s*자\s*번?\s*호$/,/^사\s*업\s*자\s*등\s*록\s*번\s*호$/]},
+    {key:'주소', regexes:[/^주\s*소$/,/^소\s*재\s*지$/]},
+    {key:'전화번호', regexes:[/^전\s*화\s*번?\s*호?$/,/^TEL$/i]},
+    {key:'FAX', regexes:[/^FAX$/i,/^팩\s*스$/]},
+    {key:'설립일', regexes:[/^설\s*립\s*일$/]},
+    {key:'자본금', regexes:[/^자\s*본\s*금$/]},
+    {key:'전년도매출액', regexes:[/^전\s*년\s*도?\s*매\s*출\s*액?$/,/^매\s*출\s*액$/]}
+  ];
+  for (const p of nextLinePatterns) {
+    if (result[p.key]) continue;
+    for (const regex of p.regexes) {
+      let found = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (regex.test(lines[i]) && i + 1 < lines.length) {
+          let val = lines[i + 1].trim();
+          if (!val || val.length > 150) continue;
+          val = val.replace(/\s*[\(（]인[\)）]\s*$/, '').trim();
+          if (val && val.length > 0) {
+            result[p.key] = val;
+            found = true;
+            break;
+          }
+        }
+      }
+      if (found) break;
+    }
+  }
+
+  // ── 3단계: 사업자번호 특수 패턴 ──
+  if (!result['사업자번호']) {
+    for (const line of lines) {
+      const m = line.match(/(\d{3}-\d{2}-\d{5})/);
+      if (m) { result['사업자번호'] = m[1]; break; }
+    }
+  }
+
+  // ── 4단계: 설립일 보조 추출 ──
+  if (!result['설립일']) {
+    for (let i = 0; i < lines.length; i++) {
+      if (/^설\s*립\s*일$/.test(lines[i]) && i + 1 < lines.length) {
+        const m2 = lines[i+1].match(/(\d{4}년.*)/);
+        if (m2) { result['설립일'] = m2[1].trim(); break; }
+      }
+    }
+  }
+
   return result;
 }
 
