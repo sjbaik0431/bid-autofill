@@ -363,6 +363,17 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
 
 @app.route('/')
 def index():
+    """
+    외부 index.html 우선 로드 (소스 단일화).
+    파일이 없으면 내장 HTML_PAGE로 폴백.
+    """
+    ext_html = os.path.join(SCRIPT_DIR, 'index.html')
+    if os.path.exists(ext_html):
+        try:
+            with open(ext_html, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"[경고] index.html 읽기 실패, 내장 페이지 사용: {e}")
     return HTML_PAGE
 
 # ── 회사정보 API ──
