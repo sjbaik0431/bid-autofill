@@ -79,6 +79,35 @@
   .parsed-item .pk{color:#94a3b8;font-size:11px}
   .parsed-item .pv{color:#c4b5fd;font-weight:500}
 
+  /* 회사정보 완성도 대시보드 */
+  .completeness-card{background:linear-gradient(135deg,rgba(99,102,241,.08),rgba(139,92,246,.08));border:1px solid rgba(99,102,241,.3);border-radius:14px;padding:20px;margin-bottom:20px}
+  .comp-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px}
+  .comp-score{display:flex;align-items:center;gap:14px}
+  .comp-ring{position:relative;width:80px;height:80px;flex-shrink:0}
+  .comp-ring svg{transform:rotate(-90deg)}
+  .comp-ring .bg-track{stroke:rgba(99,102,241,.12);fill:none;stroke-width:8}
+  .comp-ring .progress{fill:none;stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset 1s ease,stroke 0.3s}
+  .comp-ring .center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:700}
+  .comp-ring .center .num{font-size:22px;color:#fff;line-height:1}
+  .comp-ring .center .unit{font-size:10px;color:#94a3b8}
+  .comp-text .title{font-size:18px;color:#c4b5fd;font-weight:700;margin-bottom:4px}
+  .comp-text .sub{font-size:13px;color:#94a3b8}
+  .comp-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .field-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+  .field-item{padding:10px 14px;border-radius:10px;border:1px solid rgba(71,85,105,.3);background:rgba(15,23,42,.4);display:flex;align-items:center;justify-content:space-between;gap:8px;transition:all .2s}
+  .field-item.filled{border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+  .field-item.empty{border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.05)}
+  .field-item .fk{font-size:12px;color:#94a3b8;font-weight:500;white-space:nowrap}
+  .field-item .fv{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+  .field-item.filled .fv{color:#34d399}
+  .field-item.empty .fv{color:#f87171;font-style:italic}
+  .field-item .fs{font-size:16px}
+  @media(max-width:768px){
+    .field-grid{grid-template-columns:1fr 1fr}
+    .comp-ring{width:60px;height:60px}
+    .comp-ring .center .num{font-size:16px}
+  }
+
   /* 배너 */
   .live-banner{background:linear-gradient(90deg,rgba(99,102,241,.15),rgba(139,92,246,.15));border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:16px 24px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
   .live-banner .badge{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;animation:pulse 2s infinite}
@@ -194,6 +223,35 @@
 
   <!-- ═══ 탭2: 회사정보 관리 ═══ -->
   <div id="tab-company" class="tab-content">
+    <!-- 완성도 대시보드 -->
+    <div class="completeness-card">
+      <div class="comp-header">
+        <div class="comp-score">
+          <div class="comp-ring">
+            <svg width="80" height="80">
+              <circle class="bg-track" cx="40" cy="40" r="34"></circle>
+              <circle class="progress" id="compRingProgress" cx="40" cy="40" r="34"
+                      stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke="#6366f1"></circle>
+            </svg>
+            <div class="center">
+              <div class="num" id="compScoreNum">0</div>
+              <div class="unit">/ 9</div>
+            </div>
+          </div>
+          <div class="comp-text">
+            <div class="title" id="compTitle">회사정보 완성도 0%</div>
+            <div class="sub" id="compSub">HWP 파일을 업로드하거나 직접 입력하여 정보를 채워주세요</div>
+          </div>
+        </div>
+        <div class="comp-actions">
+          <button class="btn btn-secondary btn-sm" onclick="reExtractFromLastFile()" id="btnReExtract" title="마지막으로 업로드한 HWP 파일에서 다시 추출합니다">🔄 재분석</button>
+          <button class="btn btn-secondary btn-sm" onclick="clearAllCompanyInfo()" style="border-color:rgba(239,68,68,.3);color:#fca5a5">🗑️ 전체 초기화</button>
+        </div>
+      </div>
+      <!-- 항목별 상태 그리드 -->
+      <div class="field-grid" id="fieldStatusGrid"></div>
+    </div>
+
     <div class="card">
       <h2><span class="icon">📤</span>회사정보 HWP 파일에서 자동 추출</h2>
       <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">기존에 작성된 회사정보 HWP 파일을 업로드하면 자동으로 정보를 추출합니다.</p>
@@ -364,10 +422,12 @@ function renderFormSelect() {
 function onFormSelect(){const v=document.getElementById('formSelect').value;if(v)document.getElementById('formPath').value=v;}
 
 // ── 회사정보 ──
+const COMPANY_FIELDS = ['업체명','대표자','사업자번호','주소','전화번호','FAX','설립일','자본금','전년도매출액'];
+
 function loadCompanyUI() {
   const store=loadStore();
   const info=store.company['회사정보']||{};
-  ['업체명','대표자','사업자번호','주소','전화번호','FAX','설립일','자본금','전년도매출액'].forEach(k=>{
+  COMPANY_FIELDS.forEach(k=>{
     const el=document.getElementById('c_'+k);if(el)el.value=info[k]||'';
   });
   document.getElementById('headerCompany').textContent=info['업체명']||'';
@@ -378,6 +438,109 @@ function loadCompanyUI() {
   document.getElementById('staffList').innerHTML=sh||'등록된 인력 없음';
   document.getElementById('licenseList').innerHTML=(store.company['면허_허가_등록증']||[]).map(l=>`<div>• ${l['명칭']} (${l['등록번호']}) - ${l['발급기관']}</div>`).join('')||'없음';
   document.getElementById('projectList').innerHTML=(store.company['사업수행실적']||[]).map(p=>`<div>• ${p['용역명']} / ${p['발주처']} / ${p['계약금액']}</div>`).join('')||'없음';
+  updateCompletenessUI();
+}
+
+// 완성도 대시보드 업데이트
+function updateCompletenessUI() {
+  const store = loadStore();
+  const info = store.company['회사정보'] || {};
+  let filled = 0;
+  let gridHtml = '';
+  for (const key of COMPANY_FIELDS) {
+    const val = (info[key] || '').toString().trim();
+    const isFilled = val.length > 0;
+    if (isFilled) filled++;
+    const displayVal = isFilled ? (val.length > 20 ? val.substring(0,20)+'…' : val) : '미입력';
+    const icon = isFilled ? '✓' : '○';
+    gridHtml += `<div class="field-item ${isFilled?'filled':'empty'}" title="${val.replace(/"/g,'&quot;')}">
+      <span class="fs">${icon}</span>
+      <span class="fk">${key}</span>
+      <span class="fv">${displayVal}</span>
+    </div>`;
+  }
+  const total = COMPANY_FIELDS.length;
+  const percent = Math.round(filled / total * 100);
+
+  // 링 프로그레스 업데이트
+  const CIRC = 2 * Math.PI * 34; // ≈ 213.6
+  const offset = CIRC - (CIRC * percent / 100);
+  const ring = document.getElementById('compRingProgress');
+  if (ring) {
+    ring.style.strokeDasharray = CIRC;
+    ring.style.strokeDashoffset = offset;
+    // 색상: 진행도에 따라
+    let color = '#ef4444';  // 빨강 (33% 미만)
+    if (percent >= 100) color = '#10b981';      // 초록 (완성)
+    else if (percent >= 67) color = '#34d399';  // 연초록 (67% 이상)
+    else if (percent >= 34) color = '#f59e0b';  // 주황 (34% 이상)
+    ring.style.stroke = color;
+  }
+
+  document.getElementById('compScoreNum').textContent = filled;
+  document.getElementById('compTitle').textContent = `회사정보 완성도 ${percent}%`;
+  let subMsg = '';
+  if (percent === 100) subMsg = '✅ 모든 항목 입력 완료! 자동입력에 사용할 준비가 되었습니다';
+  else if (percent >= 67) subMsg = `${total-filled}개 항목이 남았습니다. 누락 항목은 직접 입력하거나 재분석해 보세요`;
+  else if (percent >= 34) subMsg = `${total-filled}개 항목이 미입력 상태입니다. HWP 파일을 업로드하여 자동 추출을 시도해 보세요`;
+  else subMsg = 'HWP 파일을 업로드하거나 직접 입력하여 정보를 채워주세요';
+  document.getElementById('compSub').textContent = subMsg;
+
+  // 항목별 그리드
+  document.getElementById('fieldStatusGrid').innerHTML = gridHtml;
+
+  // 재분석 버튼 활성/비활성
+  const reBtn = document.getElementById('btnReExtract');
+  if (reBtn) {
+    const hasLastFile = !!localStorage.getItem('_lastHwpFile');
+    reBtn.disabled = !hasLastFile;
+    reBtn.style.opacity = hasLastFile ? '1' : '0.5';
+    reBtn.title = hasLastFile
+      ? '마지막으로 업로드한 HWP 파일에서 다시 추출합니다'
+      : '먼저 HWP 파일을 업로드해야 재분석이 가능합니다';
+  }
+}
+
+// 마지막 업로드 파일로 재분석
+async function reExtractFromLastFile() {
+  const lastB64 = localStorage.getItem('_lastHwpFile');
+  const lastName = localStorage.getItem('_lastHwpFileName') || 'HWP 파일';
+  if (!lastB64) {
+    showToast('재분석할 파일이 없습니다. 먼저 HWP 파일을 업로드하세요', true);
+    return;
+  }
+  try {
+    showToast('🔄 마지막 파일 재분석 중: ' + lastName);
+    // base64 → Blob → File
+    const bin = atob(lastB64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], lastName, {type: 'application/x-hwp'});
+    // 가짜 input 객체 생성
+    const fakeInput = {
+      files: [file],
+      value: '',
+      name: lastName
+    };
+    await extractHwpCompanyInfo(fakeInput);
+  } catch(e) {
+    console.error('재분석 오류:', e);
+    showToast('재분석 실패: ' + e.message, true);
+  }
+}
+
+// 회사정보 전체 초기화
+function clearAllCompanyInfo() {
+  if (!confirm('저장된 회사정보를 모두 삭제하시겠습니까?\n(HWP 업로드 이력도 함께 삭제됩니다)')) return;
+  const store = loadStore();
+  store.company['회사정보'] = {};
+  COMPANY_FIELDS.forEach(k=>{ store.company['회사정보'][k] = ''; });
+  saveStore(store);
+  localStorage.removeItem('_lastHwpFile');
+  localStorage.removeItem('_lastHwpFileName');
+  document.getElementById('companyImportResult').style.display = 'none';
+  loadCompanyUI();
+  showToast('🗑️ 회사정보가 초기화되었습니다');
 }
 
 function saveCompany() {
@@ -481,6 +644,18 @@ async function extractHwpCompanyInfo(input) {
     const arrayBuf = await file.arrayBuffer();
     const data = new Uint8Array(arrayBuf);
 
+    // 재분석을 위해 파일 데이터를 localStorage에 저장 (~5MB까지만)
+    if (data.length < 5 * 1024 * 1024) {
+      try {
+        let binary = '';
+        for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
+        localStorage.setItem('_lastHwpFile', btoa(binary));
+        localStorage.setItem('_lastHwpFileName', file.name);
+      } catch(e) {
+        console.warn('파일 캐시 저장 실패 (용량 초과 가능):', e);
+      }
+    }
+
     // CFB(OLE) 파싱
     const cfb = CFB.read(data, {type: 'array'});
     let allText = '';
@@ -535,20 +710,28 @@ async function extractHwpCompanyInfo(input) {
     const resultDiv = document.getElementById('companyImportResult');
     const parsedDiv = document.getElementById('parsedInfo');
     let html = '';
-    const fieldLabels = {
-      '업체명':'업체명','대표자':'대표자','사업자번호':'사업자번호',
-      '주소':'주소','전화번호':'전화번호','FAX':'FAX',
-      '설립일':'설립일','자본금':'자본금','전년도매출액':'전년도매출액'
-    };
+    const total = COMPANY_FIELDS.length;
     let foundCount = 0;
-    for (const [key, label] of Object.entries(fieldLabels)) {
+    for (const key of COMPANY_FIELDS) {
       const val = _parsedCompanyData[key] || '';
       if (val) foundCount++;
-      html += `<div class="parsed-item"><div class="pk">${label}</div><div class="pv">${val || '(미검출)'}</div></div>`;
+      const statusIcon = val ? '✅' : '⚠️';
+      const valColor = val ? '#34d399' : '#f87171';
+      const valText = val || '(미검출 - 직접 입력 필요)';
+      html += `<div class="parsed-item"><div class="pk">${statusIcon} ${key}</div><div class="pv" style="color:${valColor}">${valText}</div></div>`;
     }
     parsedDiv.innerHTML = html;
+    // 헤더에 매칭 결과 요약
+    const h3 = resultDiv.querySelector('h3');
+    if (h3) {
+      const pct = Math.round(foundCount / total * 100);
+      h3.innerHTML = `추출 결과: <span style="color:${pct>=67?'#34d399':pct>=34?'#f59e0b':'#f87171'}">${foundCount} / ${total} 항목 (${pct}%)</span>`;
+    }
     resultDiv.style.display = 'block';
     showToast(`✅ ${file.name}에서 ${foundCount}개 항목 추출 완료`);
+
+    // 완성도 UI 즉시 업데이트 (적용 안 해도 재분석 버튼 활성화 위해)
+    updateCompletenessUI();
   } catch(err) {
     console.error('HWP 파싱 오류:', err);
     showToast('❌ HWP 파싱 오류: ' + err.message, true);
