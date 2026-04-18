@@ -298,13 +298,50 @@ def run_autofill(form_path, output_name, bid_info, demo_mode=False):
         out_dir = SCRIPT_DIR
         output_hwp = os.path.join(out_dir, f"{output_name}.hwp")
         output_pdf = os.path.join(out_dir, f"{output_name}.pdf")
+
+        # ═══ 기존 열려있는 한컴오피스 강제 종료 (파일 잠금 방지) ═══
+        try:
+            import subprocess
+            result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq Hwp.exe'],
+                                    capture_output=True, text=True, encoding='cp949', errors='ignore')
+            if 'Hwp.exe' in result.stdout:
+                status["log"].append("🔄 기존 한컴오피스 프로세스 종료 중...")
+                subprocess.run(['taskkill', '/F', '/IM', 'Hwp.exe'], capture_output=True)
+                time.sleep(1.5)  # 완전히 종료될 때까지 대기
+                status["log"].append("  ✓ 기존 한컴 프로세스 정리 완료")
+        except Exception as e:
+            status["log"].append(f"  ⚠ 한컴 프로세스 체크 실패: {e}")
+
+        # 출력 파일이 잠겨있으면 재시도 (최대 3번)
         for f in [output_hwp, output_pdf]:
-            if os.path.exists(f):
-                try: os.remove(f)
-                except: pass
+            for retry in range(3):
+                if not os.path.exists(f):
+                    break
+                try:
+                    os.remove(f)
+                    break
+                except PermissionError:
+                    if retry < 2:
+                        time.sleep(1)
+                    else:
+                        status["log"].append(f"  ⚠ 기존 파일 삭제 실패 (무시하고 진행): {os.path.basename(f)}")
+                except Exception:
+                    break
+
         status["current_task"] = "양식 복사 중..."
         status["log"].append("📄 양식 파일 복사")
-        shutil.copy2(form_path, output_hwp)
+        # 복사도 최대 3번 재시도
+        copy_err = None
+        for retry in range(3):
+            try:
+                shutil.copy2(form_path, output_hwp)
+                copy_err = None
+                break
+            except PermissionError as e:
+                copy_err = e
+                time.sleep(1.5)
+        if copy_err:
+            raise copy_err
         time.sleep(0.3)
         status["current_task"] = "한컴오피스 실행 중..."
         status["log"].append("🖥️ 한컴오피스 실행")

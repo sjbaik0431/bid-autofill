@@ -154,21 +154,55 @@ def fill_extended_data(hwp, info, extended, status_log=None):
     log = status_log if status_log is not None else []
     count = 0
 
-    # ═══ 1. 서식 제12호 일반현황 표: 라벨 → 옆 셀 입력 ═══
-    log.append("📋 서식 제12호 일반현황 표 입력...")
+    # ═══ 1. 서식 제12호 일반현황 표 + 서식 제1호 참가신청서 표: 라벨 → 옆/아래 셀 입력 ═══
+    log.append("📋 일반현황 표 / 참가신청서 표 입력 중...")
+    # 여러 양식에 공통으로 나타나는 라벨 변형 전부 시도
     table_fields = [
+        # (라벨, 값, 방향, 다른 라벨 변형들...)
         ("업 체 명", info.get('업체명', ''), 'right'),
+        ("업체명", info.get('업체명', ''), 'right'),
+        ("상호(법인명칭)", info.get('업체명', ''), 'right'),
+        ("상호", info.get('업체명', ''), 'right'),
+        ("회사명", info.get('업체명', ''), 'right'),
         ("대  표  자", info.get('대표자', ''), 'right'),
+        ("대 표 자", info.get('대표자', ''), 'right'),
+        ("대표자", info.get('대표자', ''), 'right'),
+        ("대표이사", info.get('대표자', ''), 'right'),
         ("사업자번호", info.get('사업자번호', ''), 'right'),
+        ("사업자등록번호", info.get('사업자번호', ''), 'right'),
         ("주       소", info.get('주소', ''), 'right'),
+        ("주    소", info.get('주소', ''), 'right'),
+        ("주  소", info.get('주소', ''), 'right'),
+        ("주소", info.get('주소', ''), 'right'),
+        ("소재지", info.get('주소', ''), 'right'),
+        ("주사무소 소재지", info.get('주소', ''), 'right'),
         ("전 화 번 호", info.get('전화번호', ''), 'right'),
+        ("전화번호", info.get('전화번호', ''), 'right'),
+        ("연락처", info.get('전화번호', ''), 'right'),
         ("FAX", info.get('FAX', ''), 'right'),
+        ("팩스", info.get('FAX', ''), 'right'),
+        ("자본금", info.get('자본금', ''), 'right'),
+        ("전년도매출액", info.get('전년도매출액', ''), 'right'),
+        ("매출액", info.get('전년도매출액', ''), 'right'),
+        ("설  립  일", info.get('설립일', ''), 'right'),
+        ("설 립 일", info.get('설립일', ''), 'right'),
+        ("설립일", info.get('설립일', ''), 'right'),
+        ("법인등록번호", (extended.get('추가정보', {}) or {}).get('법인등록번호', '') or info.get('법인등록번호', ''), 'right'),
         ("해당부문", (extended.get('추가정보', {}) or {}).get('해당부문', ''), 'right'),
+        ("사업기간", (extended.get('추가정보', {}) or {}).get('사업기간', ''), 'right'),
+        ("인력현황", (extended.get('추가정보', {}) or {}).get('임직원수', ''), 'right'),
+        # 서식 1호: 발주처 관련
+        ("발주처", '', 'right'),  # 발주처는 bid_info에 있지만 extended에서도 처리 가능
     ]
+    # 중복 처리 방지를 위해 성공한 라벨 기록
+    filled_labels = set()
     for label, val, direction in table_fields:
-        if val and fill_table_cell(hwp, label, val, direction):
-            log.append(f"  ✓ 표셀: {label} → {val[:20]}")
+        if not val or label in filled_labels:
+            continue
+        if fill_table_cell(hwp, label, val, direction):
+            log.append(f"  ✓ 표셀: {label} → {val[:25]}")
             count += 1
+            filled_labels.add(label)
 
     # 플레이스홀더 치환 (표 내 빈칸 형태)
     placeholder_fills = [
